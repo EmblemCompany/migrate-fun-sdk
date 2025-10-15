@@ -1,0 +1,81 @@
+# Exclude source files (only include dist/)
+src/
+react/
+
+# Exclude tests
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+**/__tests__/
+**/*.test.*
+**/*.spec.*
+
+# Exclude test configuration
+vitest.config.ts
+jest.config.js
+.jest/
+
+# Exclude build configuration
+tsup.config.ts
+tsconfig.json
+tsconfig.*.json
+
+# Exclude examples (available in repo)
+examples/
+
+# Exclude documentation (use README.md only)
+SDK_PUBLISHING.md
+CONTRIBUTING.md
+.github/
+
+# Exclude development files
+.vscode/
+.idea/
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Exclude git files
+.git/
+.gitignore
+.gitattributes
+
+# Exclude CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+
+# Exclude package manager files
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+.yarn/
+.pnpm/
+
+# Exclude environment files
+.env
+.env.*
+!.env.example
+
+# Exclude coverage reports
+coverage/
+.nyc_output/
+*.lcov
+
+# Exclude temporary files
+tmp/
+temp/
+*.tmp
+
+# Include these files
+!dist/**
+!idl/**
+!README.md
+!LICENSE
+!CHANGELOG.md
+!package.json

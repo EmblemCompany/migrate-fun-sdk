@@ -1,0 +1,74 @@
+{
+  "name": "@migratefun/sdk",
+  "version": "0.1.0-next.0",
+  "description": "Official SDK for migrate.fun token migration protocol on Solana",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "idl"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    },
+    "./idl/dev/devnet_hustle_migration.json": "./idl/dev/devnet_hustle_migration.json",
+    "./idl/mainnet/mainnet_hustle_migration.json": "./idl/mainnet/mainnet_hustle_migration.json"
+  },
+  "peerDependencies": {
+    "@coral-xyz/anchor": ">=0.31.0",
+    "@solana/spl-token": ">=0.4.9",
+    "@solana/web3.js": ">=1.95.4",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^2"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "yarn typecheck && yarn test && yarn build",
+    "preversion": "yarn typecheck && yarn test",
+    "postversion": "git push && git push --tags",
+    "publish:next": "npm publish --tag next --access public",
+    "publish:latest": "npm publish --access public"
+  },
+  "keywords": [
+    "solana",
+    "token",
+    "migration",
+    "anchor",
+    "web3",
+    "defi"
+  ],
+  "author": "migrate.fun",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EmblemCompany/migratefun.git",
+    "directory": "sdk"
+  }
+}
