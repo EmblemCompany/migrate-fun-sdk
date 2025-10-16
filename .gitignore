@@ -56,3 +56,5 @@ examples/*/.next/
 examples/*/.env.local
 examples/*/dist/
 examples/*/.turbo/
+
+ai_docs
