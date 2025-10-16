@@ -396,7 +396,7 @@ export async function getBalances(
  * @param {string} projectId - Unique project identifier
  * @param {PublicKey} user - User wallet public key
  * @param {Connection} connection - Solana RPC connection
- * @param {(balances: BalanceSnapshot) => void} onChange - Callback for balance updates
+ * @param {(balances: BalanceSnapshot, project?: LoadedProject) => void} onChange - Callback for balance updates (receives project when loaded)
  * @param {WatchBalancesOptions} [options] - Watch options
  * @returns {UnsubscribeFn} Function to stop watching balances
  *
@@ -412,8 +412,9 @@ export async function getBalances(
  *   'my-project',
  *   userPubkey,
  *   connection,
- *   (balances) => {
+ *   (balances, project) => {
  *     console.log('Balances updated:', balances);
+ *     if (project) console.log('Project loaded:', project);
  *   },
  *   { intervalMs: 1000 } // Poll every second
  * );
@@ -426,7 +427,7 @@ export function watchBalances(
   projectId: string,
   user: PublicKey,
   connection: Connection,
-  onChange: (balances: BalanceSnapshot) => void,
+  onChange: (balances: BalanceSnapshot, project?: LoadedProject) => void,
   options: WatchBalancesOptions = {}
 ): UnsubscribeFn {
   const { intervalMs = 150, network } = options;
@@ -456,7 +457,7 @@ export function watchBalances(
         balances.mft !== lastBalances.mft
       ) {
         lastBalances = balances;
-        onChange(balances);
+        onChange(balances, loadedProject);
       }
     } catch (error) {
       // Log error but continue polling
