@@ -140,16 +140,19 @@ export function useLoadedProject(
     }
 
     try {
+      console.log(`[useLoadedProject] Starting to load project: ${projectId}`);
       setIsLoading(true);
       setError(null);
 
       const loadedProject = await loadProject(projectId, connection, { network });
 
+      console.log(`[useLoadedProject] Successfully loaded project:`, loadedProject);
       if (isMountedRef.current) {
         setProject(loadedProject);
         setError(null);
       }
     } catch (err) {
+      console.error(`[useLoadedProject] Failed to load project "${projectId}":`, err);
       if (isMountedRef.current) {
         const error = err instanceof SdkError || err instanceof Error
           ? err
@@ -159,6 +162,7 @@ export function useLoadedProject(
       }
     } finally {
       if (isMountedRef.current) {
+        console.log(`[useLoadedProject] Finished loading attempt for "${projectId}"`);
         setIsLoading(false);
       }
     }

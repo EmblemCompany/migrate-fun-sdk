@@ -161,7 +161,7 @@ export async function buildMigrateTx(
       { commitment: 'confirmed' }
     );
 
-    const program = await getProgram(provider, { network: project.pdas.projectConfig.toString().startsWith('2') ? 'devnet' : 'mainnet-beta' });
+    const program = await getProgram(provider);
 
     // Resolve required accounts
     const oldTokenProgram = project.oldTokenDecimals === 9 ? TOKEN_PROGRAM_ID : TOKEN_PROGRAM_ID; // Adjust based on project config
@@ -190,8 +190,8 @@ export async function buildMigrateTx(
       userMftAta,
       oldTokenMint: project.oldTokenMint,
       mftMint: project.mftMint,
-      // oldTokenProgram is only needed if different from TOKEN_PROGRAM_ID
-      ...(oldTokenProgram.toString() !== TOKEN_PROGRAM_ID.toString() && { oldTokenProgram }),
+      // Always pass oldTokenProgram as required by IDL
+      oldTokenProgram,
     };
 
     // Convert bigint to BN for Anchor
@@ -457,8 +457,8 @@ export async function buildClaimMftTx(
       userNewTokenAta,
       newTokenMint: project.newTokenMint,
       mftMint: project.mftMint,
-      // newTokenProgram is only needed if different from TOKEN_PROGRAM_ID
-      ...(newTokenProgram.toString() !== TOKEN_PROGRAM_ID.toString() && { newTokenProgram }),
+      // Always pass newTokenProgram as required by IDL
+      newTokenProgram,
     };
 
     // Convert bigint to BN for Anchor

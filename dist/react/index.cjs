@@ -1,9 +1,9 @@
 'use strict';
 
 var react = require('react');
-var web3_js = require('@solana/web3.js');
 var splToken = require('@solana/spl-token');
 var anchor = require('@coral-xyz/anchor');
+var web3_js = require('@solana/web3.js');
 
 // react/useLoadedProject.ts
 
@@ -13949,7 +13949,8 @@ async function loadProject(projectId, connection, options = {}) {
     const exchangeRateBps = projectConfig.exchangeRateBasisPoints || 1e4;
     const exchangeRate = BigInt(exchangeRateBps);
     const loadedProject = {
-      projectId: new web3_js.PublicKey(projectId),
+      projectId: projectConfigPda,
+      // Use the PDA as the project identifier
       oldTokenMint: projectConfig.oldTokenMint,
       newTokenMint: projectConfig.newTokenMint,
       mftMint: pdas.mftMint,
@@ -14138,14 +14139,17 @@ function useLoadedProject(projectId, connection, options = {}) {
       return;
     }
     try {
+      console.log(`[useLoadedProject] Starting to load project: ${projectId}`);
       setIsLoading(true);
       setError(null);
       const loadedProject = await loadProject(projectId, connection, { network });
+      console.log(`[useLoadedProject] Successfully loaded project:`, loadedProject);
       if (isMountedRef.current) {
         setProject(loadedProject);
         setError(null);
       }
     } catch (err) {
+      console.error(`[useLoadedProject] Failed to load project "${projectId}":`, err);
       if (isMountedRef.current) {
         const error2 = err instanceof SdkError || err instanceof Error ? err : new Error(String(err));
         setError(error2);
@@ -14153,6 +14157,7 @@ function useLoadedProject(projectId, connection, options = {}) {
       }
     } finally {
       if (isMountedRef.current) {
+        console.log(`[useLoadedProject] Finished loading attempt for "${projectId}"`);
         setIsLoading(false);
       }
     }
@@ -14196,7 +14201,7 @@ function useBalances(projectId, user, connection, options = {}) {
   const {
     network,
     project,
-    refetchInterval = 150,
+    refetchInterval = 3e3,
     enabled = true
   } = options;
   const [balances, setBalances] = react.useState(null);
@@ -14247,10 +14252,19 @@ function useBalances(projectId, user, connection, options = {}) {
     await fetchBalances();
   }, [fetchBalances]);
   react.useEffect(() => {
+    console.log("[useBalances] Effect triggered", {
+      enabled,
+      hasUser: !!user,
+      shouldWatch,
+      hasProject: !!project,
+      projectId
+    });
     if (!enabled || !user || !shouldWatch) {
+      console.log("[useBalances] Hook disabled or waiting for user");
       setIsLoading(false);
       return;
     }
+    console.log("[useBalances] Starting balance watch for", user.toBase58());
     setIsLoading(true);
     setError(null);
     const unsubscribe = watchBalances(
@@ -14266,7 +14280,6 @@ function useBalances(projectId, user, connection, options = {}) {
               newToken: formatTokenAmount(snapshot.newToken, project.newTokenDecimals),
               mft: formatTokenAmount(snapshot.mft, project.mftDecimals),
               sol: formatTokenAmount(snapshot.sol, 9)
-              // SOL always has 9 decimals
             });
           }
           setIsLoading(false);
@@ -14277,6 +14290,7 @@ function useBalances(projectId, user, connection, options = {}) {
     );
     unsubscribeRef.current = unsubscribe;
     return () => {
+      console.log("[useBalances] Cleaning up balance watch");
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
@@ -14288,6 +14302,19 @@ function useBalances(projectId, user, connection, options = {}) {
       fetchBalances();
     }
   }, [shouldWatch, enabled, user, fetchBalances]);
+  react.useEffect(() => {
+    if (!balances || !project) return;
+    try {
+      const next = {
+        oldToken: formatTokenAmount(balances.oldToken, project.oldTokenDecimals),
+        newToken: formatTokenAmount(balances.newToken, project.newTokenDecimals),
+        mft: formatTokenAmount(balances.mft, project.mftDecimals),
+        sol: formatTokenAmount(balances.sol, 9)
+      };
+      setFormatted(next);
+    } catch (e) {
+    }
+  }, [balances, project]);
   react.useEffect(() => {
     return () => {
       isMountedRef.current = false;
@@ -14526,7 +14553,7 @@ async function buildMigrateTx(connection, user, projectId, amount, project, opti
       },
       { commitment: "confirmed" }
     );
-    const program = await getProgram(provider, { network: project.pdas.projectConfig.toString().startsWith("2") ? "devnet" : "mainnet-beta" });
+    const program = await getProgram(provider);
     const oldTokenProgram = project.oldTokenDecimals === 9 ? splToken.TOKEN_PROGRAM_ID : splToken.TOKEN_PROGRAM_ID;
     const userOldTokenAta = splToken.getAssociatedTokenAddressSync(
       project.oldTokenMint,
@@ -14547,8 +14574,8 @@ async function buildMigrateTx(connection, user, projectId, amount, project, opti
       userMftAta,
       oldTokenMint: project.oldTokenMint,
       mftMint: project.mftMint,
-      // oldTokenProgram is only needed if different from TOKEN_PROGRAM_ID
-      ...oldTokenProgram.toString() !== splToken.TOKEN_PROGRAM_ID.toString() && { oldTokenProgram }
+      // Always pass oldTokenProgram as required by IDL
+      oldTokenProgram
     };
     const amountBN = new anchor.BN(amount.toString());
     const instruction = await program.methods.migrate(projectId, amountBN).accounts(accounts).instruction();

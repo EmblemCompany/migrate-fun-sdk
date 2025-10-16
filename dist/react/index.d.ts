@@ -127,7 +127,7 @@ interface UseBalancesOptions {
     project?: LoadedProject;
     /**
      * Polling interval in milliseconds (set to 0 to disable real-time updates)
-     * @default 150
+     * @default 3000
      */
     refetchInterval?: number;
     /**

@@ -51,9 +51,10 @@ describe('SDK Core Functionality', () => {
 
   describe('Token Amount Formatting', () => {
     it('should format amounts correctly', () => {
-      expect(formatTokenAmount(1000000n, 6)).toBe(1);
-      expect(formatTokenAmount(1500000n, 6)).toBe(1.5);
-      expect(formatTokenAmount(0n, 6)).toBe(0);
+      // formatTokenAmount returns a string to preserve precision
+      expect(formatTokenAmount(1000000n, 6)).toBe('1');
+      expect(formatTokenAmount(1500000n, 6)).toBe('1.5');
+      expect(formatTokenAmount(0n, 6)).toBe('0');
     });
 
     it('should parse amounts correctly', () => {
@@ -62,10 +63,10 @@ describe('SDK Core Functionality', () => {
       expect(parseTokenAmount(0, 6)).toBe(0n);
     });
 
-    it('should handle round-trip conversions', () => {
+    it('should handle round-trip conversions for small amounts', () => {
       const original = 1500000n;
-      const formatted = formatTokenAmount(original, 6);
-      const parsed = parseTokenAmount(formatted, 6);
+      const formatted = formatTokenAmount(original, 6); // string
+      const parsed = parseTokenAmount(Number(formatted), 6);
       expect(parsed).toBe(original);
     });
   });

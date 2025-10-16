@@ -14061,7 +14061,8 @@ async function loadProject(projectId, connection, options = {}) {
     const exchangeRateBps = projectConfig.exchangeRateBasisPoints || 1e4;
     const exchangeRate = BigInt(exchangeRateBps);
     const loadedProject = {
-      projectId: new PublicKey(projectId),
+      projectId: projectConfigPda,
+      // Use the PDA as the project identifier
       oldTokenMint: projectConfig.oldTokenMint,
       newTokenMint: projectConfig.newTokenMint,
       mftMint: pdas.mftMint,
@@ -14597,7 +14598,7 @@ async function buildMigrateTx(connection, user, projectId, amount, project, opti
       },
       { commitment: "confirmed" }
     );
-    const program = await getProgram(provider, { network: project.pdas.projectConfig.toString().startsWith("2") ? "devnet" : "mainnet-beta" });
+    const program = await getProgram(provider);
     const oldTokenProgram = project.oldTokenDecimals === 9 ? TOKEN_PROGRAM_ID : TOKEN_PROGRAM_ID;
     const userOldTokenAta = getAssociatedTokenAddressSync(
       project.oldTokenMint,
@@ -14618,8 +14619,8 @@ async function buildMigrateTx(connection, user, projectId, amount, project, opti
       userMftAta,
       oldTokenMint: project.oldTokenMint,
       mftMint: project.mftMint,
-      // oldTokenProgram is only needed if different from TOKEN_PROGRAM_ID
-      ...oldTokenProgram.toString() !== TOKEN_PROGRAM_ID.toString() && { oldTokenProgram }
+      // Always pass oldTokenProgram as required by IDL
+      oldTokenProgram
     };
     const amountBN = new BN(amount.toString());
     const instruction = await program.methods.migrate(projectId, amountBN).accounts(accounts).instruction();
@@ -14727,8 +14728,8 @@ async function buildClaimMftTx(connection, user, projectId, mftAmount, project, 
       userNewTokenAta,
       newTokenMint: project.newTokenMint,
       mftMint: project.mftMint,
-      // newTokenProgram is only needed if different from TOKEN_PROGRAM_ID
-      ...newTokenProgram.toString() !== TOKEN_PROGRAM_ID.toString() && { newTokenProgram }
+      // Always pass newTokenProgram as required by IDL
+      newTokenProgram
     };
     const mftAmountBN = new BN(mftAmount.toString());
     const instruction = await program.methods.claimWithMft(projectId, mftAmountBN).accounts(accounts).instruction();

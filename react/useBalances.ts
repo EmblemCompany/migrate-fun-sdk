@@ -30,7 +30,7 @@ export interface UseBalancesOptions {
 
   /**
    * Polling interval in milliseconds (set to 0 to disable real-time updates)
-   * @default 150
+   * @default 3000
    */
   refetchInterval?: number;
 
@@ -162,7 +162,7 @@ export function useBalances(
   const {
     network,
     project,
-    refetchInterval = 150,
+    refetchInterval = 3000,
     enabled = true,
   } = options;
 
@@ -235,11 +235,22 @@ export function useBalances(
 
   // Set up balance watching with real-time updates
   useEffect(() => {
+    console.log('[useBalances] Effect triggered', {
+      enabled,
+      hasUser: !!user,
+      shouldWatch,
+      hasProject: !!project,
+      projectId
+    });
+
+    // Start watching as soon as user is available; formatting backfills when project arrives
     if (!enabled || !user || !shouldWatch) {
+      console.log('[useBalances] Hook disabled or waiting for user');
       setIsLoading(false);
       return;
     }
 
+    console.log('[useBalances] Starting balance watch for', user.toBase58());
     setIsLoading(true);
     setError(null);
 
@@ -251,17 +262,15 @@ export function useBalances(
       (snapshot) => {
         if (isMountedRef.current) {
           setBalances(snapshot);
-
-          // Format balances if we have project info
+          // If project is available, format immediately; otherwise, backfill effect will handle it
           if (project) {
             setFormatted({
               oldToken: formatTokenAmount(snapshot.oldToken, project.oldTokenDecimals),
               newToken: formatTokenAmount(snapshot.newToken, project.newTokenDecimals),
               mft: formatTokenAmount(snapshot.mft, project.mftDecimals),
-              sol: formatTokenAmount(snapshot.sol, 9), // SOL always has 9 decimals
+              sol: formatTokenAmount(snapshot.sol, 9),
             });
           }
-
           setIsLoading(false);
           setError(null);
         }
@@ -272,6 +281,7 @@ export function useBalances(
     unsubscribeRef.current = unsubscribe;
 
     return () => {
+      console.log('[useBalances] Cleaning up balance watch');
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
@@ -285,6 +295,23 @@ export function useBalances(
       fetchBalances();
     }
   }, [shouldWatch, enabled, user, fetchBalances]);
+
+  // Backfill formatted balances when project loads after raw balances
+  // This covers the race where a balance snapshot arrives before `project` is available.
+  useEffect(() => {
+    if (!balances || !project) return;
+    try {
+      const next: FormattedBalances = {
+        oldToken: formatTokenAmount(balances.oldToken, project.oldTokenDecimals),
+        newToken: formatTokenAmount(balances.newToken, project.newTokenDecimals),
+        mft: formatTokenAmount(balances.mft, project.mftDecimals),
+        sol: formatTokenAmount(balances.sol, 9),
+      };
+      setFormatted(next);
+    } catch (e) {
+      // ignore formatting errors; hook will keep raw balances
+    }
+  }, [balances, project]);
 
   // Cleanup on unmount
   useEffect(() => {

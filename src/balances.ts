@@ -188,7 +188,7 @@ export async function loadProject(
 
     // Construct loaded project
     const loadedProject: LoadedProject = {
-      projectId: new PublicKey(projectId),
+      projectId: projectConfigPda, // Use the PDA as the project identifier
       oldTokenMint: projectConfig.oldTokenMint,
       newTokenMint: projectConfig.newTokenMint,
       mftMint: pdas.mftMint,
