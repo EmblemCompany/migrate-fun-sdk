@@ -616,3 +616,348 @@ export async function sendAndConfirmTransaction(
     throw parseError(error);
   }
 }
+
+/**
+ * Options for building a merkle claim transaction
+ */
+export interface BuildClaimMerkleTxOptions extends BuildMigrateTxOptions {
+  // Additional merkle-specific options can be added here
+}
+
+/**
+ * Result of building a merkle claim transaction
+ */
+export interface BuildClaimMerkleTxResult {
+  /**
+   * The built transaction, ready to sign and send
+   */
+  transaction: Transaction;
+
+  /**
+   * Amount of old tokens being claimed (in base units)
+   */
+  oldTokenAmount: bigint;
+
+  /**
+   * Expected new tokens to receive after penalty (in base units)
+   */
+  expectedNewTokens: bigint;
+
+  /**
+   * Penalty amount in basis points (e.g., 1000 = 10%)
+   */
+  penaltyBps: number;
+
+  /**
+   * Required accounts for the transaction
+   */
+  accounts: {
+    user: PublicKey;
+    projectConfig: PublicKey;
+    userOldTokenAta: PublicKey;
+    userNewTokenAta: PublicKey;
+    oldTokenMint: PublicKey;
+    newTokenMint: PublicKey;
+  };
+}
+
+/**
+ * Build a merkle claim transaction (late migration with penalty)
+ *
+ * Creates a transaction that migrates old tokens directly to new tokens using a merkle proof.
+ * This is for users who missed the migration window and incur a penalty.
+ *
+ * @param {Connection} connection - Solana RPC connection
+ * @param {PublicKey} user - User wallet public key
+ * @param {string} projectId - Project identifier
+ * @param {bigint} amount - Amount to claim (in old token base units)
+ * @param {Buffer[]} merkleProof - Merkle proof for late claim eligibility
+ * @param {LoadedProject} project - Pre-loaded project configuration
+ * @param {BuildClaimMerkleTxOptions} [options] - Transaction options
+ * @returns {Promise<BuildClaimMerkleTxResult>} Transaction and metadata
+ * @throws {SdkError} If claims not enabled or invalid amount
+ *
+ * @see IDL_REFERENCE.md:310-419 for instruction details
+ *
+ * @example
+ * ```typescript
+ * import { Connection, PublicKey } from '@solana/web3.js';
+ * import { loadProject, buildClaimMerkleTx, parseTokenAmount } from '@migratefun/sdk';
+ *
+ * const connection = new Connection('https://api.devnet.solana.com');
+ * const user = new PublicKey('...');
+ *
+ * // Load project first
+ * const project = await loadProject('my-project', connection);
+ *
+ * // Get merkle proof from your merkle tree
+ * const merkleProof = [...]; // Array of Buffer
+ *
+ * // Parse amount
+ * const amount = parseTokenAmount(100, project.oldTokenDecimals);
+ *
+ * // Build merkle claim transaction
+ * const { transaction, expectedNewTokens, penaltyBps } = await buildClaimMerkleTx(
+ *   connection,
+ *   user,
+ *   'my-project',
+ *   amount,
+ *   merkleProof,
+ *   project
+ * );
+ *
+ * console.log(`Penalty: ${penaltyBps / 100}%`);
+ * console.log(`Expected new tokens: ${expectedNewTokens}`);
+ * ```
+ */
+export async function buildClaimMerkleTx(
+  connection: Connection,
+  user: PublicKey,
+  projectId: string,
+  amount: bigint,
+  merkleProof: Buffer[],
+  project: LoadedProject,
+  _options: BuildClaimMerkleTxOptions = {}
+): Promise<BuildClaimMerkleTxResult> {
+  try {
+    // Validate amount
+    if (amount <= 0n) {
+      throw new SdkError(
+        SdkErrorCode.INVALID_AMOUNT,
+        'Claim amount must be greater than zero'
+      );
+    }
+
+    // Get program instance
+    const provider = new AnchorProvider(
+      connection,
+      {
+        publicKey: user,
+        signTransaction: async () => {
+          throw new Error('This is a read-only provider');
+        },
+        signAllTransactions: async () => {
+          throw new Error('This is a read-only provider');
+        },
+      } as any,
+      { commitment: 'confirmed' }
+    );
+
+    const program = await getProgram(provider);
+
+    // Resolve required accounts
+    const oldTokenProgram = TOKEN_PROGRAM_ID;
+    const newTokenProgram = TOKEN_PROGRAM_ID;
+
+    const userOldTokenAta = getAssociatedTokenAddressSync(
+      project.oldTokenMint,
+      user,
+      false,
+      oldTokenProgram
+    );
+
+    const userNewTokenAta = getAssociatedTokenAddressSync(
+      project.newTokenMint,
+      user,
+      false,
+      newTokenProgram
+    );
+
+    // Build instruction accounts
+    const accounts = {
+      user,
+      config: project.pdas.projectConfig,
+      userOldTokenAta,
+      userNewTokenAta,
+      oldTokenMint: project.oldTokenMint,
+      newTokenMint: project.newTokenMint,
+      oldTokenProgram,
+      newTokenProgram,
+    };
+
+    // Convert bigint to BN for Anchor
+    const amountBN = new BN(amount.toString());
+
+    // Convert merkle proof to array format expected by Anchor
+    const proofArray = merkleProof.map(p => Array.from(p));
+
+    // Build transaction
+    const instruction = await (program as any).methods
+      .claimWithMerkle(projectId, amountBN, proofArray)
+      .accounts(accounts)
+      .instruction();
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
+
+    // Set recent blockhash
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = user;
+
+    // Calculate penalty and expected tokens
+    // Note: In a real implementation, penalty should come from project config
+    const penaltyBps = 0; // TODO: Fetch from project.lateClaimHaircutBps when available
+
+    const penalty = (amount * BigInt(penaltyBps)) / 10000n;
+    const amountAfterPenalty = amount - penalty;
+
+    // Adjust for decimal differences
+    const expectedNewTokens = adjustForDecimals(
+      amountAfterPenalty,
+      project.oldTokenDecimals,
+      project.newTokenDecimals
+    );
+
+    return {
+      transaction,
+      oldTokenAmount: amount,
+      expectedNewTokens,
+      penaltyBps,
+      accounts: {
+        user,
+        projectConfig: project.pdas.projectConfig,
+        userOldTokenAta,
+        userNewTokenAta,
+        oldTokenMint: project.oldTokenMint,
+        newTokenMint: project.newTokenMint,
+      },
+    };
+  } catch (error) {
+    throw parseError(error);
+  }
+}
+
+/**
+ * Options for building a refund claim transaction
+ */
+export interface BuildClaimRefundTxOptions extends BuildMigrateTxOptions {
+  // Additional refund-specific options can be added here
+}
+
+/**
+ * Result of building a refund claim transaction
+ */
+export interface BuildClaimRefundTxResult {
+  /**
+   * The built transaction, ready to sign and send
+   */
+  transaction: Transaction;
+
+  /**
+   * Expected old tokens to be refunded (in base units)
+   */
+  expectedRefundAmount: bigint;
+
+  /**
+   * Required accounts for the transaction
+   */
+  accounts: {
+    user: PublicKey;
+    projectConfig: PublicKey;
+  };
+}
+
+/**
+ * Build a refund claim transaction
+ *
+ * Creates a transaction that returns old tokens to the user by burning their MFT.
+ * This is only available for failed migrations.
+ *
+ * @param {Connection} connection - Solana RPC connection
+ * @param {PublicKey} user - User wallet public key
+ * @param {string} projectId - Project identifier
+ * @param {LoadedProject} project - Pre-loaded project configuration
+ * @param {BuildClaimRefundTxOptions} [options] - Transaction options
+ * @returns {Promise<BuildClaimRefundTxResult>} Transaction and metadata
+ * @throws {SdkError} If refund not available
+ *
+ * @see IDL_REFERENCE.md:510-617 for instruction details
+ *
+ * @example
+ * ```typescript
+ * import { Connection, PublicKey } from '@solana/web3.js';
+ * import { loadProject, buildClaimRefundTx } from '@migratefun/sdk';
+ *
+ * const connection = new Connection('https://api.devnet.solana.com');
+ * const user = new PublicKey('...');
+ *
+ * // Load project first
+ * const project = await loadProject('my-project', connection);
+ *
+ * // Build refund claim transaction
+ * const { transaction, expectedRefundAmount } = await buildClaimRefundTx(
+ *   connection,
+ *   user,
+ *   'my-project',
+ *   project
+ * );
+ *
+ * console.log(`Expected refund: ${expectedRefundAmount}`);
+ *
+ * // Sign and send
+ * transaction.feePayer = user;
+ * const signed = await wallet.signTransaction(transaction);
+ * const signature = await connection.sendRawTransaction(signed.serialize());
+ * ```
+ */
+export async function buildClaimRefundTx(
+  connection: Connection,
+  user: PublicKey,
+  projectId: string,
+  project: LoadedProject,
+  _options: BuildClaimRefundTxOptions = {}
+): Promise<BuildClaimRefundTxResult> {
+  try {
+    // Get program instance
+    const provider = new AnchorProvider(
+      connection,
+      {
+        publicKey: user,
+        signTransaction: async () => {
+          throw new Error('This is a read-only provider');
+        },
+        signAllTransactions: async () => {
+          throw new Error('This is a read-only provider');
+        },
+      } as any,
+      { commitment: 'confirmed' }
+    );
+
+    const program = await getProgram(provider);
+
+    // Build instruction accounts
+    // Note: For claim_refund, only user is required per IDL_REFERENCE.md:525-528
+    const accounts = {
+      user,
+    };
+
+    // Build transaction (no amount needed - refunds entire migration)
+    const instruction = await (program as any).methods
+      .claimRefund(projectId)
+      .accounts(accounts)
+      .instruction();
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
+
+    // Set recent blockhash
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = user;
+
+    // TODO: Fetch expected refund amount from user migration record
+    const expectedRefundAmount = 0n;
+
+    return {
+      transaction,
+      expectedRefundAmount,
+      accounts: {
+        user,
+        projectConfig: project.pdas.projectConfig,
+      },
+    };
+  } catch (error) {
+    throw parseError(error);
+  }
+}

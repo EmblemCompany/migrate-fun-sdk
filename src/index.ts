@@ -11,5 +11,10 @@ export * from './balances';
 export * from './builders';
 export * from './errors';
 
+// Enhanced functionality
+export * from './eligibility';
+export * from './queries';
+export * from './calculations';
+
 // Utilities
 export * from './utils/cache';

@@ -53,6 +53,86 @@ export interface BalanceSnapshot {
 }
 
 /**
+ * Claim type union
+ */
+export type ClaimType = 'mft' | 'merkle' | 'refund' | null;
+
+/**
+ * Claim eligibility details for a user
+ */
+export interface ClaimEligibility {
+  /**
+   * Can claim MFT (burn MFT → receive new tokens, no penalty)
+   */
+  canClaimMft: boolean;
+
+  /**
+   * Can claim via merkle proof (late claim with penalty)
+   */
+  canClaimMerkle: boolean;
+
+  /**
+   * Can claim refund (failed migration, get old tokens back)
+   */
+  canRefund: boolean;
+
+  /**
+   * User has old tokens
+   */
+  hasOldTokens: boolean;
+
+  /**
+   * User has MFT tokens
+   */
+  hasMftTokens: boolean;
+
+  /**
+   * MFT balance in base units
+   */
+  mftBalance: bigint;
+
+  /**
+   * Old token balance in base units
+   */
+  oldTokenBalance: bigint;
+}
+
+/**
+ * Project redirect intent for routing logic
+ */
+export interface ProjectRedirectIntent {
+  /**
+   * Action to take (migrate, claim, refund, or view)
+   */
+  action: 'migrate' | 'claim' | 'refund' | 'view';
+
+  /**
+   * Target route for the action
+   */
+  targetRoute: string;
+}
+
+/**
+ * User migration record (on-chain account data)
+ */
+export interface UserMigrationRecord {
+  /**
+   * Amount of old tokens the user migrated (in base units)
+   */
+  amountMigrated: bigint;
+
+  /**
+   * Whether the user has claimed a refund (if migration failed)
+   */
+  hasClaimedRefund: boolean;
+
+  /**
+   * Unix timestamp when the user migrated
+   */
+  migratedAt: number;
+}
+
+/**
  * SDK error codes
  */
 export enum SdkErrorCode {
