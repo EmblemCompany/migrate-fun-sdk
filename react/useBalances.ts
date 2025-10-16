@@ -259,15 +259,16 @@ export function useBalances(
       projectId,
       user,
       connection,
-      (snapshot) => {
+      (snapshot, watchProject) => {
         if (isMountedRef.current) {
           setBalances(snapshot);
-          // If project is available, format immediately; otherwise, backfill effect will handle it
-          if (project) {
+          // Use the project from watchBalances (which internally loads it) OR the provided project prop
+          const projectToUse = watchProject || project;
+          if (projectToUse) {
             setFormatted({
-              oldToken: formatTokenAmount(snapshot.oldToken, project.oldTokenDecimals),
-              newToken: formatTokenAmount(snapshot.newToken, project.newTokenDecimals),
-              mft: formatTokenAmount(snapshot.mft, project.mftDecimals),
+              oldToken: formatTokenAmount(snapshot.oldToken, projectToUse.oldTokenDecimals),
+              newToken: formatTokenAmount(snapshot.newToken, projectToUse.newTokenDecimals),
+              mft: formatTokenAmount(snapshot.mft, projectToUse.mftDecimals),
               sol: formatTokenAmount(snapshot.sol, 9),
             });
           }
