@@ -6,11 +6,12 @@ Official TypeScript/JavaScript SDK for the [migrate.fun](https://migrate.fun) to
 
 ## Features
 
+- **Complete claim support** - MFT claims, merkle claims, and refund claims with eligibility detection
 - **Browser-safe** - Works in Next.js, Vite, React Native, and vanilla JavaScript
 - **TypeScript-first** - Full type safety with comprehensive JSDoc documentation
 - **Dual-format** - ESM and CommonJS support for maximum compatibility
 - **Tree-shakable** - Optimized bundle sizes with proper exports
-- **React hooks** - Optional React adapter for idiomatic integration
+- **React hooks** - Optional React adapter for idiomatic integration including unified `useProjectSession` and `useClaim`
 - **Network-agnostic** - Support for devnet and mainnet-beta
 - **Built-in caching** - Intelligent RPC request optimization
 - **Error handling** - User-friendly error messages with recovery actions
@@ -68,9 +69,10 @@ The demo automatically uses the local SDK via `file:..` reference, so any change
 ### Demo Features
 
 - ✅ Complete SDK integration showcase
-- ✅ All three React hooks (useLoadedProject, useBalances, useMigrate)
+- ✅ All React hooks (useLoadedProject, useBalances, useMigrate, useProjectSession, useClaim)
 - ✅ Real-time balance watching
 - ✅ Transaction status tracking
+- ✅ Claim eligibility detection
 - ✅ Error handling examples
 - ✅ Network switching (devnet/mainnet)
 - ✅ Clean, simple component architecture
@@ -376,7 +378,7 @@ await connection.confirmTransaction(signature, 'confirmed');
 
 #### `buildClaimMftTx(params)`
 
-Builds a transaction to claim new tokens using MFT (Migration Future Tokens).
+Builds a transaction to claim new tokens using MFT (Migration Future Tokens). No penalty applied.
 
 **Parameters:**
 - Same as `buildMigrateTx`
@@ -394,6 +396,71 @@ const claimTx = await buildClaimMftTx({
 });
 
 const signature = await wallet.sendTransaction(claimTx, connection);
+```
+
+#### `buildClaimMerkleTx(connection, user, projectId, amount, proof, project, options?)`
+
+Builds a transaction to claim tokens via merkle proof (late migration with penalty).
+
+**Parameters:**
+- `connection: Connection` - Solana RPC connection
+- `user: PublicKey` - User wallet public key
+- `projectId: string` - Project identifier
+- `amount: bigint` - Amount of old tokens to claim (in base units)
+- `proof: Buffer[]` - Merkle proof (array of 32-byte buffers)
+- `project: LoadedProject` - Pre-loaded project configuration
+- `options?: object` - Optional configuration
+
+**Returns:** `Promise<BuildClaimMerkleTxResult>`
+
+**Example:**
+```typescript
+import { buildClaimMerkleTx } from '@migratefun/sdk';
+
+// Get merkle proof from API/cache
+const proof = getMerkleProof(wallet.publicKey);
+
+const { transaction, expectedNewTokens, penaltyAmount } = await buildClaimMerkleTx(
+  connection,
+  wallet.publicKey,
+  projectId,
+  oldTokenAmount,
+  proof,
+  project
+);
+
+console.log(`Penalty: ${penaltyAmount}, Expected: ${expectedNewTokens}`);
+
+const signature = await wallet.sendTransaction(transaction, connection);
+```
+
+#### `buildClaimRefundTx(connection, user, projectId, project, options?)`
+
+Builds a transaction to claim a refund for a failed migration.
+
+**Parameters:**
+- `connection: Connection` - Solana RPC connection
+- `user: PublicKey` - User wallet public key
+- `projectId: string` - Project identifier
+- `project: LoadedProject` - Pre-loaded project configuration
+- `options?: object` - Optional configuration
+
+**Returns:** `Promise<BuildClaimRefundTxResult>`
+
+**Example:**
+```typescript
+import { buildClaimRefundTx } from '@migratefun/sdk';
+
+const { transaction, expectedRefundAmount } = await buildClaimRefundTx(
+  connection,
+  wallet.publicKey,
+  projectId,
+  project
+);
+
+console.log(`Refund amount: ${expectedRefundAmount}`);
+
+const signature = await wallet.sendTransaction(transaction, connection);
 ```
 
 ---
@@ -590,6 +657,130 @@ const handleMigrate = async () => {
     // Error already handled by onError callback
   }
 };
+```
+
+---
+
+### `useProjectSession(projectId, connection, user, options?)`
+
+Unified hook combining project loading, balance watching, and claim eligibility detection.
+
+**Returns:**
+```typescript
+{
+  project: LoadedProject | null;
+  balances: BalanceSnapshot | null;
+  formatted: FormattedBalances | null;
+  claimType: ClaimType; // 'mft' | 'merkle' | 'refund' | null
+  claimEligibility: ClaimEligibility | null;
+  redirect: ProjectRedirectIntent | null;
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+}
+```
+
+**Options:**
+- `network?: Network`
+- `refetchInterval?: number` - Auto-refetch interval (default: 5000ms)
+- `enabled?: boolean`
+
+**Example:**
+```typescript
+import { useProjectSession } from '@migratefun/sdk/react';
+
+const {
+  project,
+  balances,
+  formatted,
+  claimType,
+  isLoading
+} = useProjectSession(projectId, connection, wallet.publicKey);
+
+if (isLoading) return <div>Loading...</div>;
+
+// Automatically determine which UI to show
+switch (claimType) {
+  case 'mft':
+    return <MftClaimButton />;
+  case 'merkle':
+    return <MerkleClaimButton />;
+  case 'refund':
+    return <RefundClaimButton />;
+  default:
+    return <div>No claims available</div>;
+}
+```
+
+---
+
+### `useClaim(connection, wallet, options?)`
+
+Unified hook for executing all types of claim transactions.
+
+**Returns:**
+```typescript
+{
+  claimMft: (projectId: string, amount: bigint, project: LoadedProject) => Promise<string>;
+  claimMerkle: (projectId: string, amount: bigint, proof: Buffer[], project: LoadedProject) => Promise<string>;
+  claimRefund: (projectId: string, project: LoadedProject) => Promise<string>;
+  isLoading: boolean;
+  status: ClaimStatus;
+  error: Error | null;
+  signature: string | null;
+  reset: () => void;
+}
+
+type ClaimStatus =
+  | 'idle'
+  | 'preparing'
+  | 'signing'
+  | 'sending'
+  | 'confirming'
+  | 'confirmed'
+  | 'error';
+```
+
+**Options:**
+- `onSuccess?: (result: TransactionResult) => void`
+- `onError?: (error: Error) => void`
+- `onStatusChange?: (status: ClaimStatus) => void`
+
+**Example:**
+```typescript
+import { useClaim, useProjectSession } from '@migratefun/sdk/react';
+
+function ClaimButton() {
+  const { project, balances, claimType } = useProjectSession(projectId, connection, wallet.publicKey);
+  const { claimMft, claimMerkle, claimRefund, isLoading, status } = useClaim(
+    connection,
+    wallet,
+    {
+      onSuccess: (result) => {
+        toast.success(`Claim successful! ${result.signature}`);
+      }
+    }
+  );
+
+  const handleClaim = async () => {
+    if (!project || !balances) return;
+
+    if (claimType === 'mft') {
+      await claimMft(projectId, balances.mft, project);
+    } else if (claimType === 'merkle') {
+      const proof = await getMerkleProof(wallet.publicKey);
+      await claimMerkle(projectId, balances.oldToken, proof, project);
+    } else if (claimType === 'refund') {
+      await claimRefund(projectId, project);
+    }
+  };
+
+  return (
+    <button onClick={handleClaim} disabled={isLoading}>
+      {isLoading ? `${status}...` : 'Claim Tokens'}
+    </button>
+  );
+}
 ```
 
 ---

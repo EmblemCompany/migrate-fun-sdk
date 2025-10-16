@@ -11,11 +11,11 @@
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { getProgram } from './program';
-import { getProjectConfigPda, getUserAta, getProjectPdas } from './pdas';
-import type { LoadedProject, BalanceSnapshot, Network, MigrationPhase } from './types';
-import { SdkError, SdkErrorCode } from './types';
-import { sdkCache, rpcThrottle, CACHE_TTL, createCacheKey } from './utils/cache';
+import { getProgram } from '../core/program';
+import { getProjectConfigPda, getUserAta, getProjectPdas } from '../core/pdas';
+import type { LoadedProject, BalanceSnapshot, Network, MigrationPhase } from '../core/types';
+import { SdkError, SdkErrorCode } from '../core/types';
+import { sdkCache, rpcThrottle, CACHE_TTL, createCacheKey } from '../utils/cache';
 
 /**
  * Options for loading a project

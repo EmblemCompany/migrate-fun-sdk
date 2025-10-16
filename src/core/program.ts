@@ -13,8 +13,8 @@
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { Network, IdlSource } from './types';
-import devnetIdlJson from '../idl/dev/devnet_hustle_migration.json';
-import mainnetIdlJson from '../idl/mainnet/mainnet_hustle_migration.json';
+import devnetIdlJson from '../../idl/dev/devnet_hustle_migration.json';
+import mainnetIdlJson from '../../idl/mainnet/mainnet_hustle_migration.json';
 
 /**
  * Type representing the base IDL structure

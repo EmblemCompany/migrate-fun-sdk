@@ -4,12 +4,19 @@
  */
 
 // Core exports
-export * from './types';
-export * from './program';
-export * from './pdas';
-export * from './balances';
-export * from './builders';
-export * from './errors';
+export * from './core/types';
+export * from './core/program';
+export * from './core/pdas';
+
+// Transaction builders
+export * from './transactions/builders';
+
+// Queries
+export * from './queries/balances';
+export * from './queries/eligibility';
+export * from './queries/projects';
 
 // Utilities
+export * from './utils/calculations';
+export * from './utils/errors';
 export * from './utils/cache';

@@ -10,7 +10,7 @@
  * @module errors
  */
 
-import { SdkError, SdkErrorCode } from './types';
+import { SdkError, SdkErrorCode } from '../core/types';
 
 /**
  * Anchor program error codes from the migration program IDL
