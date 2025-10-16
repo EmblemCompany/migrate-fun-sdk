@@ -39,6 +39,44 @@ yarn add @coral-xyz/anchor@^0.31.0 @solana/web3.js@^1.95.4 @solana/spl-token@^0.
 yarn add react@^18
 ```
 
+## Live Demo App
+
+A complete, production-ready demo application is included in the `demo/` directory. Use it to:
+- Test the SDK locally during development
+- See real-world implementation patterns
+- Provide a working reference for your team
+
+### Running the Demo
+
+```bash
+# From SDK root directory
+cd demo
+
+# Install dependencies
+npm install
+
+# Configure environment (optional)
+cp .env.example .env.local
+# Edit .env.local with your settings
+
+# Start demo app
+npm run dev
+```
+
+The demo automatically uses the local SDK via `file:..` reference, so any changes you make to the SDK are immediately available in the demo.
+
+### Demo Features
+
+- ✅ Complete SDK integration showcase
+- ✅ All three React hooks (useLoadedProject, useBalances, useMigrate)
+- ✅ Real-time balance watching
+- ✅ Transaction status tracking
+- ✅ Error handling examples
+- ✅ Network switching (devnet/mainnet)
+- ✅ Clean, simple component architecture
+
+See [`demo/README.md`](./demo/README.md) for detailed documentation.
+
 ## Quick Start
 
 ### Vanilla JavaScript/TypeScript
@@ -908,10 +946,18 @@ if (project.isPaused) {
 
 ## Examples
 
-Full working examples are available in the `examples/` directory:
+### Full-Featured Demo
 
-- **Next.js Example** - [`examples/nextjs-demo/`](./examples/nextjs-demo/)
-- **Vite Example** - [`examples/vite-demo/`](./examples/vite-demo/)
+A complete demo application is available in the `demo/` directory:
+
+- **Complete Demo App** - [`demo/`](./demo/) - Production-ready Next.js 15 app showcasing all SDK features with clean component architecture
+
+### Simple Examples
+
+Minimal examples are available in the `examples/` directory:
+
+- **Next.js Example** - [`examples/nextjs-demo/`](./examples/nextjs-demo/) - Basic Next.js integration
+- **Vite Example** - [`examples/vite-demo/`](./examples/vite-demo/) - Basic Vite integration
 
 ---
 
