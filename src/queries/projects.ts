@@ -13,16 +13,16 @@
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
-import { getProgram } from './program';
-import { getUserMigrationPda } from './pdas';
+import { getProgram } from '../core/program';
+import { getUserMigrationPda } from '../core/pdas';
 import { loadProject } from './balances';
 import type {
   LoadedProject,
   UserMigrationRecord,
   Network,
-} from './types';
-import { SdkError, SdkErrorCode } from './types';
-import { sdkCache, rpcThrottle, CACHE_TTL, createCacheKey } from './utils/cache';
+} from '../core/types';
+import { SdkError, SdkErrorCode } from '../core/types';
+import { sdkCache, rpcThrottle, CACHE_TTL, createCacheKey } from '../utils/cache';
 
 /**
  * Paginated project results

@@ -20,9 +20,9 @@ import {
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 
-import { getProgram } from './program';
-import { LoadedProject, SdkError, SdkErrorCode } from './types';
-import { parseError } from './errors';
+import { getProgram } from '../core/program';
+import { LoadedProject, SdkError, SdkErrorCode } from '../core/types';
+import { parseError } from '../utils/errors';
 
 /**
  * Options for building a migration transaction

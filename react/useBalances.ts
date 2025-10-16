@@ -9,10 +9,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Connection, PublicKey } from '@solana/web3.js';
-import type { BalanceSnapshot, LoadedProject, Network } from '../src/types';
-import { getBalances, watchBalances, formatTokenAmount, loadProject } from '../src/balances';
-import type { UnsubscribeFn } from '../src/balances';
-import { SdkError } from '../src/types';
+import type { BalanceSnapshot, LoadedProject, Network } from '../src/core/types';
+import { getBalances, watchBalances, formatTokenAmount, loadProject } from '../src/queries/balances';
+import type { UnsubscribeFn } from '../src/queries/balances';
+import { SdkError } from '../src/core/types';
 
 /**
  * Options for useBalances hook

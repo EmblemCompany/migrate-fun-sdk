@@ -9,9 +9,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Connection } from '@solana/web3.js';
-import type { LoadedProject, Network } from '../src/types';
-import { loadProject } from '../src/balances';
-import { SdkError } from '../src/types';
+import type { LoadedProject, Network } from '../src/core/types';
+import { loadProject } from '../src/queries/balances';
+import { SdkError } from '../src/core/types';
 
 /**
  * Options for useLoadedProject hook

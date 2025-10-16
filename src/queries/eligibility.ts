@@ -17,8 +17,8 @@ import type {
   ClaimType,
   ProjectRedirectIntent,
   Network,
-} from './types';
-import { MigrationPhase } from './types';
+} from '../core/types';
+import { MigrationPhase } from '../core/types';
 
 /**
  * Options for computing claim eligibility

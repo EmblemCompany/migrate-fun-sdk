@@ -9,7 +9,7 @@
  * @see IDL_REFERENCE.md:1133-1152 for calculation logic
  */
 
-import { SdkError, SdkErrorCode } from './types';
+import { SdkError, SdkErrorCode } from '../core/types';
 
 /**
  * Calculate MFT amount from old tokens

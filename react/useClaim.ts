@@ -11,14 +11,14 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
-import type { LoadedProject } from '../src/types';
+import type { LoadedProject } from '../src/core/types';
 import {
   buildClaimMftTx,
   buildClaimMerkleTx,
   buildClaimRefundTx,
   sendAndConfirmTransaction,
-} from '../src/builders';
-import { SdkError } from '../src/types';
+} from '../src/transactions/builders';
+import { SdkError } from '../src/core/types';
 
 /**
  * Wallet adapter interface (compatible with Solana Wallet Adapter)

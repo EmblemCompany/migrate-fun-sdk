@@ -17,14 +17,14 @@ import type {
   ClaimType,
   ProjectRedirectIntent,
   Network,
-} from '../src/types';
-import { loadProject, getBalances } from '../src/balances';
+} from '../src/core/types';
+import { loadProject, getBalances } from '../src/queries/balances';
 import {
   computeClaimEligibility,
   determineClaimType,
   getRedirectIntent,
-} from '../src/eligibility';
-import { formatTokenAmount } from '../src/balances';
+} from '../src/queries/eligibility';
+import { formatTokenAmount } from '../src/queries/balances';
 
 /**
  * Formatted balances for display
@@ -193,6 +193,9 @@ export function useProjectSession(
   // Track if component is mounted
   const isMountedRef = useRef<boolean>(true);
 
+  // Track if we're currently fetching to prevent concurrent fetches
+  const isFetchingRef = useRef<boolean>(false);
+
   // Refs for latest values to avoid stale closures
   const projectRef = useRef<LoadedProject | null>(null);
   const balancesRef = useRef<BalanceSnapshot | null>(null);
@@ -230,15 +233,35 @@ export function useProjectSession(
       return;
     }
 
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) {
+      console.log(`[useProjectSession] Already fetching project session: ${projectId}`);
+      return;
+    }
+
     try {
+      isFetchingRef.current = true;
+      console.log(`[useProjectSession] Starting to load project session: ${projectId}`);
       setIsLoading(true);
       setError(null);
 
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Project session loading timeout after 30 seconds. Please check your RPC connection.`));
+        }, 30000); // 30 second timeout
+      });
+
       // 1. Load project
-      const loadedProject = await loadProject(projectId, connection, {
+      const loadProjectPromise = loadProject(projectId, connection, {
         network,
         skipCache: false,
       });
+
+      const loadedProject = await Promise.race([
+        loadProjectPromise,
+        timeoutPromise
+      ]);
 
       projectRef.current = loadedProject;
 
@@ -293,12 +316,20 @@ export function useProjectSession(
       if (isMountedRef.current) {
         setIsLoading(false);
       }
+
+      console.log(`[useProjectSession] Successfully loaded project session for: ${projectId}`);
     } catch (err) {
+      console.error(`[useProjectSession] Failed to load project session "${projectId}":`, err);
       const error = err instanceof Error ? err : new Error(String(err));
 
       if (isMountedRef.current) {
         setError(error);
         setIsLoading(false);
+      }
+    } finally {
+      isFetchingRef.current = false;
+      if (isMountedRef.current) {
+        console.log(`[useProjectSession] Finished loading attempt for "${projectId}"`);
       }
     }
   }, [projectId, connection, user, network, enabled, updateFormattedBalances]);
