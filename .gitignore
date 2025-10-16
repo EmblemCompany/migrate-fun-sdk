@@ -58,3 +58,4 @@ examples/*/dist/
 examples/*/.turbo/
 
 ai_docs
+.worktrees
