@@ -32,7 +32,7 @@ export function MigrationDemo() {
   // SDK Pattern 1: Load project configuration
   // The useLoadedProject hook automatically caches project data
   // and handles network switching between devnet/mainnet
-  const { project, isLoading: loadingProject, error: projectError, refetch: refetchProject } = useLoadedProject(
+  const { project, isLoading: loadingProject, error: projectError } = useLoadedProject(
     projectIdInput,
     connection,
     { network, enabled: !!projectIdInput }
@@ -40,7 +40,7 @@ export function MigrationDemo() {
 
   // SDK Pattern 2: Watch balances with automatic refetching
   // Balances update automatically when transactions complete
-  const { formatted, isLoading: loadingBalances, refetch: refetchBalances } = useBalances(
+  const { formatted, isLoading: loadingBalances } = useBalances(
     projectIdInput,
     wallet.publicKey,
     connection,
@@ -64,29 +64,6 @@ export function MigrationDemo() {
       }
     }
   );
-
-  // Auto-refetch project when wallet connects
-  const [didRefetchAfterConnect, setDidRefetchAfterConnect] = useState(false);
-  React.useEffect(() => {
-    if (!projectIdInput) return;
-    if (project) return;
-    if (loadingProject) return;
-    if (!wallet.publicKey) return;
-    if (didRefetchAfterConnect) return;
-    setDidRefetchAfterConnect(true);
-    refetchProject();
-  }, [wallet.publicKey, projectIdInput, project, loadingProject, didRefetchAfterConnect, refetchProject]);
-
-  // Auto-refetch balances when project loads with connected wallet
-  const [didRefetchAfterProject, setDidRefetchAfterProject] = useState(false);
-  React.useEffect(() => {
-    if (!wallet.publicKey) return;
-    if (!project) return;
-    if (!projectIdInput) return;
-    if (didRefetchAfterProject) return;
-    setDidRefetchAfterProject(true);
-    refetchBalances();
-  }, [wallet.publicKey, project, projectIdInput, didRefetchAfterProject, refetchBalances]);
 
   const handleMigrate = async () => {
     if (!project || !wallet.publicKey || !projectIdInput) {
