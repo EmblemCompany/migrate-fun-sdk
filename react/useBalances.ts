@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Connection, PublicKey } from '@solana/web3.js';
 import type { BalanceSnapshot, LoadedProject, Network } from '../src/types';
-import { getBalances, watchBalances, formatTokenAmount } from '../src/balances';
+import { getBalances, watchBalances, formatTokenAmount, loadProject } from '../src/balances';
 import type { UnsubscribeFn } from '../src/balances';
 import { SdkError } from '../src/types';
 
@@ -171,6 +171,13 @@ export function useBalances(
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
 
+  // Track the latest known project metadata so we always format consistently
+  const projectRef = useRef<LoadedProject | null>(project ?? null);
+
+  useEffect(() => {
+    projectRef.current = project ?? null;
+  }, [project]);
+
   // Use ref to track if component is mounted
   const isMountedRef = useRef<boolean>(true);
   const unsubscribeRef = useRef<UnsubscribeFn | null>(null);
@@ -181,6 +188,22 @@ export function useBalances(
   /**
    * Manual fetch function (used when polling is disabled)
    */
+  const ensureProject = useCallback(async (): Promise<LoadedProject | null> => {
+    // Always check projectRef first (updated via separate effect)
+    if (projectRef.current) {
+      return projectRef.current;
+    }
+
+    try {
+      const loaded = await loadProject(projectId, connection, { network });
+      projectRef.current = loaded;
+      return loaded;
+    } catch (err) {
+      console.warn('[useBalances] Failed to load project for balances:', err);
+      return null;
+    }
+  }, [projectId, connection, network]);
+
   const fetchBalances = useCallback(async () => {
     if (!enabled || !user) {
       return;
@@ -190,7 +213,9 @@ export function useBalances(
       setIsLoading(true);
       setError(null);
 
-      const snapshot = await getBalances(projectId, user, connection, project, {
+      const projectForFetch = await ensureProject();
+
+      const snapshot = await getBalances(projectId, user, connection, projectForFetch ?? project ?? undefined, {
         network,
         skipCache: true,
       });
@@ -198,12 +223,12 @@ export function useBalances(
       if (isMountedRef.current) {
         setBalances(snapshot);
 
-        // Format balances if we have project info
-        if (project) {
+        const projectForFormat = projectRef.current ?? projectForFetch ?? project ?? null;
+        if (projectForFormat) {
           setFormatted({
-            oldToken: formatTokenAmount(snapshot.oldToken, project.oldTokenDecimals),
-            newToken: formatTokenAmount(snapshot.newToken, project.newTokenDecimals),
-            mft: formatTokenAmount(snapshot.mft, project.mftDecimals),
+            oldToken: formatTokenAmount(snapshot.oldToken, projectForFormat.oldTokenDecimals),
+            newToken: formatTokenAmount(snapshot.newToken, projectForFormat.newTokenDecimals),
+            mft: formatTokenAmount(snapshot.mft, projectForFormat.mftDecimals),
             sol: formatTokenAmount(snapshot.sol, 9), // SOL always has 9 decimals
           });
         }
@@ -224,7 +249,7 @@ export function useBalances(
         setIsLoading(false);
       }
     }
-  }, [projectId, user, connection, network, project, enabled]);
+  }, [projectId, user, connection, network, enabled]);
 
   /**
    * Manual refetch function exposed to users
@@ -254,16 +279,30 @@ export function useBalances(
     setIsLoading(true);
     setError(null);
 
-    // Subscribe to balance updates
-    const unsubscribe = watchBalances(
-      projectId,
-      user,
-      connection,
-      (snapshot, watchProject) => {
-        if (isMountedRef.current) {
+    let didCancel = false;
+
+    const startWatching = async () => {
+      await ensureProject();
+
+      if (didCancel) {
+        return;
+      }
+
+      // Subscribe to balance updates
+      const unsubscribe = watchBalances(
+        projectId,
+        user,
+        connection,
+        (snapshot, watchProject) => {
+          if (!isMountedRef.current) return;
+
           setBalances(snapshot);
-          // Use the project from watchBalances (which internally loads it) OR the provided project prop
-          const projectToUse = watchProject || project;
+
+          if (watchProject) {
+            projectRef.current = watchProject;
+          }
+
+          const projectToUse = projectRef.current ?? watchProject ?? project ?? null;
           if (projectToUse) {
             setFormatted({
               oldToken: formatTokenAmount(snapshot.oldToken, projectToUse.oldTokenDecimals),
@@ -272,23 +311,27 @@ export function useBalances(
               sol: formatTokenAmount(snapshot.sol, 9),
             });
           }
+
           setIsLoading(false);
           setError(null);
-        }
-      },
-      { intervalMs: refetchInterval, network }
-    );
+        },
+        { intervalMs: refetchInterval, network }
+      );
 
-    unsubscribeRef.current = unsubscribe;
+      unsubscribeRef.current = unsubscribe;
+    };
+
+    startWatching();
 
     return () => {
       console.log('[useBalances] Cleaning up balance watch');
+      didCancel = true;
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
       }
     };
-  }, [projectId, user, connection, network, project, refetchInterval, enabled, shouldWatch]);
+  }, [projectId, user, connection, network, refetchInterval, enabled, shouldWatch]);
 
   // Manual fetch when not watching (polling disabled)
   useEffect(() => {
@@ -300,12 +343,15 @@ export function useBalances(
   // Backfill formatted balances when project loads after raw balances
   // This covers the race where a balance snapshot arrives before `project` is available.
   useEffect(() => {
-    if (!balances || !project) return;
+    if (!balances) return;
+
+    const projectForFormat = projectRef.current ?? project ?? null;
+    if (!projectForFormat) return;
     try {
       const next: FormattedBalances = {
-        oldToken: formatTokenAmount(balances.oldToken, project.oldTokenDecimals),
-        newToken: formatTokenAmount(balances.newToken, project.newTokenDecimals),
-        mft: formatTokenAmount(balances.mft, project.mftDecimals),
+        oldToken: formatTokenAmount(balances.oldToken, projectForFormat.oldTokenDecimals),
+        newToken: formatTokenAmount(balances.newToken, projectForFormat.newTokenDecimals),
+        mft: formatTokenAmount(balances.mft, projectForFormat.mftDecimals),
         sol: formatTokenAmount(balances.sol, 9),
       };
       setFormatted(next);

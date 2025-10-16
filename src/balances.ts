@@ -435,13 +435,34 @@ export function watchBalances(
   let isActive = true;
   let lastBalances: BalanceSnapshot | null = null;
 
-  // Load project once at start
+  // Load project once at start, retrying later if the initial attempt fails
   let loadedProject: LoadedProject | undefined;
+  let projectLoadErrorLogged = false;
+  let lastProjectIdentifier: string | null = null;
 
   const poll = async () => {
     if (!isActive) return;
 
     try {
+      // Ensure we have project configuration; retry on each poll until successful
+      if (!loadedProject) {
+        try {
+          loadedProject = await loadProject(projectId, connection, { network });
+          projectLoadErrorLogged = false;
+        } catch (error) {
+          if (!projectLoadErrorLogged) {
+            console.warn(
+              '[migrate.fun SDK] Failed to load project for balance watch:',
+              error
+            );
+            projectLoadErrorLogged = true;
+          }
+        }
+      }
+
+      const projectIdentifier = loadedProject?.projectId?.toBase58?.() ?? null;
+      const projectChanged = projectIdentifier !== null && projectIdentifier !== lastProjectIdentifier;
+
       // Fetch balances (skip cache to get fresh data)
       const balances = await getBalances(projectId, user, connection, loadedProject, {
         network,
@@ -449,13 +470,15 @@ export function watchBalances(
       });
 
       // Check if balances changed
-      if (
+      const balancesChanged =
         !lastBalances ||
         balances.sol !== lastBalances.sol ||
         balances.oldToken !== lastBalances.oldToken ||
         balances.newToken !== lastBalances.newToken ||
-        balances.mft !== lastBalances.mft
-      ) {
+        balances.mft !== lastBalances.mft;
+
+      if (balancesChanged || projectChanged) {
+        lastProjectIdentifier = projectIdentifier;
         lastBalances = balances;
         onChange(balances, loadedProject);
       }
@@ -472,10 +495,19 @@ export function watchBalances(
 
   // Load project and start polling
   (async () => {
-    try {
-      loadedProject = await loadProject(projectId, connection, { network });
-    } catch (error) {
-      console.warn('[migrate.fun SDK] Failed to load project for balance watch:', error);
+    if (!loadedProject) {
+      try {
+        loadedProject = await loadProject(projectId, connection, { network });
+        projectLoadErrorLogged = false;
+        lastProjectIdentifier = loadedProject.projectId.toBase58();
+      } catch (error) {
+        if (!projectLoadErrorLogged) {
+          console.warn('[migrate.fun SDK] Failed to load project for balance watch:', error);
+          projectLoadErrorLogged = true;
+        }
+      }
+    } else {
+      lastProjectIdentifier = loadedProject.projectId.toBase58();
     }
     poll();
   })();

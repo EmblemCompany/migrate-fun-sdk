@@ -130,6 +130,7 @@ export function useLoadedProject(
   // Use ref to track if component is mounted
   const isMountedRef = useRef<boolean>(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
 
   /**
    * Fetch project data
@@ -139,7 +140,14 @@ export function useLoadedProject(
       return;
     }
 
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) {
+      console.log(`[useLoadedProject] Already fetching project: ${projectId}`);
+      return;
+    }
+
     try {
+      isFetchingRef.current = true;
       console.log(`[useLoadedProject] Starting to load project: ${projectId}`);
       setIsLoading(true);
       setError(null);
@@ -161,6 +169,7 @@ export function useLoadedProject(
         setProject(null);
       }
     } finally {
+      isFetchingRef.current = false;
       if (isMountedRef.current) {
         console.log(`[useLoadedProject] Finished loading attempt for "${projectId}"`);
         setIsLoading(false);
