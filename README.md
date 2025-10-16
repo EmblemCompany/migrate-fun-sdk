@@ -16,6 +16,36 @@ Official TypeScript/JavaScript SDK for the [migrate.fun](https://migrate.fun) to
 - **Built-in caching** - Intelligent RPC request optimization
 - **Error handling** - User-friendly error messages with recovery actions
 
+## SDK Architecture
+
+The SDK is organized by feature for better maintainability and scalability:
+
+### Directory Structure
+
+```
+src/
+├── core/           # Core SDK primitives
+│   ├── program.ts  # IDL loading, Program instances, network resolution
+│   ├── pdas.ts     # PDA derivation functions
+│   └── types.ts    # Core types and interfaces
+├── transactions/   # Transaction builders
+│   └── builders.ts # All transaction building logic (migrate, claim, refund)
+├── queries/        # Data fetching operations
+│   ├── balances.ts # Balance fetching & watching
+│   ├── eligibility.ts # Claim eligibility determination
+│   └── projects.ts # Project discovery & user migration records
+└── utils/          # Utility functions
+    ├── calculations.ts # Token calculations, exchange rates, penalties
+    ├── errors.ts   # Error parsing and handling
+    └── cache.ts    # RPC throttling & caching
+```
+
+This structure provides:
+- **Clear separation of concerns** - Each module has a single responsibility
+- **Easy navigation** - Find functionality by category
+- **Better scalability** - New features fit naturally into the structure
+- **Improved imports** - More explicit and maintainable
+
 ## Installation
 
 ```bash
@@ -39,6 +69,42 @@ yarn add @coral-xyz/anchor@^0.31.0 @solana/web3.js@^1.95.4 @solana/spl-token@^0.
 # Optional: For React hooks
 yarn add react@^18
 ```
+
+### Importing from the SDK
+
+The SDK exports are organized but you can import from the main package:
+
+```typescript
+// Core types and functions
+import {
+  LoadedProject,
+  BalanceSnapshot,
+  SdkError
+} from '@migratefun/sdk';
+
+// Transaction builders
+import {
+  buildMigrateTx,
+  buildClaimMftTx,
+  buildClaimMerkleTx
+} from '@migratefun/sdk';
+
+// Queries
+import {
+  loadProject,
+  getBalances,
+  computeClaimEligibility
+} from '@migratefun/sdk';
+
+// React hooks
+import {
+  useProjectSession,
+  useClaim,
+  useBalances
+} from '@migratefun/sdk/react';
+```
+
+All exports are available from the main package entry point - the internal organization is transparent to users.
 
 ## Live Demo App
 
@@ -664,6 +730,13 @@ const handleMigrate = async () => {
 ### `useProjectSession(projectId, connection, user, options?)`
 
 Unified hook combining project loading, balance watching, and claim eligibility detection.
+
+**Features:**
+- ✅ Combines three operations: project loading, balance watching, eligibility detection
+- ✅ Automatic race condition handling (balances can arrive before project metadata)
+- ✅ Built-in safety features: timeout protection (30s), concurrent fetch prevention, debug logging
+- ✅ Auto-refetch with configurable interval (default: 5 seconds)
+- ✅ Works with or without a connected user (anonymous mode)
 
 **Returns:**
 ```typescript
