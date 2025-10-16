@@ -49,7 +49,6 @@ demo/.next/
 demo/.env.local
 demo/dist/
 demo/.turbo/
-demo/.git/
 
 # Examples build artifacts
 examples/*/node_modules/
