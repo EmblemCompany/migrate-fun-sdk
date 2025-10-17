@@ -20,3 +20,4 @@ export * from './queries/projects';
 export * from './utils/calculations';
 export * from './utils/errors';
 export * from './utils/cache';
+export * from './utils/rpc-health';

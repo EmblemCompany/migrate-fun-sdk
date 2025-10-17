@@ -4,7 +4,14 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useProjectSession, useMigrate, useClaim } from '@migratefun/sdk/react';
 import { parseTokenAmount } from '@migratefun/sdk';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import {
+  ProjectInfoSkeleton,
+  BalancesSkeleton,
+  ErrorDisplay,
+  ConnectionStatus,
+  LoadingIndicator
+} from '../components/LoadingStates';
 
 /**
  * MigrateFun SDK Demo - Single Page Application
@@ -28,31 +35,82 @@ export default function Home() {
   const [migrationAmount, setMigrationAmount] = useState('10');
 
   // ===== SECTION 2: PROJECT INFO + BALANCES =====
-  // useProjectSession combines project metadata, balances, and eligibility in one hook
+  // Use the SDK's improved hook with separated state management
   const {
+    // Project data
     project,
+    projectLoading,
+    projectError,
+
+    // Balance data
     formatted,
+    balancesLoading,
+    balancesError,
+
+    // Claim data
     claimEligibility,
-    isLoading,
-    error,
+    claimType: eligibleClaimType,
+    claimLoading,
+    claimError,
+
+    // Overall states
+    isInitializing,
+    hasError,
+
+    // Actions
     refresh,
+    refreshBalances,
+    clearErrors,
   } = useProjectSession(
     projectIdInput,
     connection,
     wallet.publicKey,
     {
       network,
-      enabled: !!projectIdInput && !!wallet.publicKey,
       refetchInterval: 3000, // Auto-refresh every 3 seconds
+      maxRetries: 3,
+      retryDelay: 1000,
     }
   );
+
+  // Track whether we've ever loaded the project successfully
+  const [hasLoadedProject, setHasLoadedProject] = useState(false);
+  const [autoRetryCount, setAutoRetryCount] = useState(0);
+
+  useEffect(() => {
+    if (project && !hasLoadedProject) {
+      setHasLoadedProject(true);
+      setAutoRetryCount(0); // Reset auto-retry count on success
+    }
+  }, [project, hasLoadedProject]);
+
+  // Auto-retry on certain errors (timeout, connection issues)
+  useEffect(() => {
+    if (projectError && autoRetryCount < 3) {
+      const isRetriableError = projectError.message.includes('timeout') ||
+                               projectError.message.includes('connection') ||
+                               projectError.message.includes('rate limit');
+
+      if (isRetriableError) {
+        const retryDelay = 3000 * Math.pow(1.5, autoRetryCount); // Exponential backoff
+        console.log(`[Demo] Auto-retrying after error (attempt ${autoRetryCount + 1}/3) in ${retryDelay}ms...`);
+
+        const timer = setTimeout(() => {
+          setAutoRetryCount(prev => prev + 1);
+          refresh();
+        }, retryDelay);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [projectError, autoRetryCount, refresh]);
 
   // ===== SECTION 3: MIGRATE TOKENS =====
   const {
     migrate,
     isLoading: migrating,
     status: migrateStatus,
-    error: migrateError,
+    error: migrateTxError,
     signature: migrateSignature,
   } = useMigrate(connection, wallet, {
     onSuccess: (sig) => {
@@ -61,6 +119,19 @@ export default function Home() {
     },
     onError: (err) => {
       console.error('Migration failed:', err.message);
+
+      // Provide helpful error messages based on common issues
+      if (err.message.includes('simulation failed')) {
+        console.error('💡 Tip: Transaction simulation failed. Common causes:');
+        console.error('  - Project does not exist or is paused');
+        console.error('  - Insufficient SOL for transaction fees (need ~0.002 SOL)');
+        console.error('  - Token accounts not properly initialized');
+        console.error('  - Using rate-limited public RPC (try a premium RPC)');
+      } else if (err.message.includes('insufficient balance')) {
+        console.error('💡 Tip: Check that you have enough tokens to migrate');
+      } else if (err.message.includes('rate limit')) {
+        console.error('💡 Tip: RPC rate limit hit. Use a premium RPC endpoint (see .env.example)');
+      }
     },
   });
 
@@ -71,7 +142,7 @@ export default function Home() {
     claimRefund,
     isLoading: claiming,
     status: claimStatus,
-    error: claimError,
+    error: claimTxError,
     signature: claimSignature,
   } = useClaim(connection, wallet, {
     onSuccess: (sig) => {
@@ -80,6 +151,14 @@ export default function Home() {
     },
     onError: (err) => {
       console.error('Claim failed:', err.message);
+
+      // Provide helpful error messages for claim issues
+      if (err.message.includes('simulation failed')) {
+        console.error('💡 Tip: Claim transaction failed. Check:');
+        console.error('  - You have MFT tokens to claim');
+        console.error('  - Project claim phase is active');
+        console.error('  - Sufficient SOL for fees');
+      }
     },
   });
 
@@ -90,8 +169,36 @@ export default function Home() {
       return;
     }
 
+    // 1. Validate input is a valid number
+    const numAmount = parseFloat(migrationAmount);
+    if (!Number.isFinite(numAmount) || numAmount <= 0) {
+      alert('Please enter a valid positive amount');
+      return;
+    }
+
+    // 2. Check against available balance
+    const maxAmount = parseFloat(formatted?.oldToken || '0');
+    if (numAmount > maxAmount) {
+      alert(`Insufficient balance. You have ${maxAmount.toFixed(2)} tokens available.`);
+      return;
+    }
+
+    // 3. Validate decimal precision doesn't exceed token decimals
+    const decimalPlaces = (migrationAmount.split('.')[1] || '').length;
+    if (decimalPlaces > project.oldTokenDecimals) {
+      alert(`Maximum ${project.oldTokenDecimals} decimal places allowed`);
+      return;
+    }
+
+    // 4. Check for overflow
+    const MAX_SAFE_TOKEN_AMOUNT = Number.MAX_SAFE_INTEGER / Math.pow(10, project.oldTokenDecimals);
+    if (numAmount > MAX_SAFE_TOKEN_AMOUNT) {
+      alert('Amount exceeds maximum safe value');
+      return;
+    }
+
     try {
-      const amount = parseTokenAmount(parseFloat(migrationAmount), project.oldTokenDecimals);
+      const amount = parseTokenAmount(numAmount, project.oldTokenDecimals);
       await migrate(projectIdInput, amount, project);
     } catch (err) {
       console.error('Migration error:', err);
@@ -125,13 +232,15 @@ export default function Home() {
     }
   };
 
-  // Helper to get claim type name
+  // Helper to get claim type name (use the pre-computed value from hook)
   const getClaimType = () => {
-    if (!claimEligibility) return null;
-    if (claimEligibility.canClaimMft && claimEligibility.mftBalance > BigInt(0)) return 'MFT';
-    if (claimEligibility.canClaimMerkle) return 'Merkle';
-    if (claimEligibility.canRefund && claimEligibility.oldTokenBalance > BigInt(0)) return 'Refund';
-    return null;
+    if (!eligibleClaimType) return null;
+    switch (eligibleClaimType) {
+      case 'mft': return 'MFT';
+      case 'merkle': return 'Merkle';
+      case 'refund': return 'Refund';
+      default: return null;
+    }
   };
 
   // Helper to format transaction link
@@ -165,26 +274,64 @@ export default function Home() {
             />
             <button
               onClick={() => refresh()}
-              disabled={isLoading || !projectIdInput}
+              disabled={projectLoading || !projectIdInput}
               className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
             >
-              {isLoading ? 'Loading...' : 'Refresh'}
+              {projectLoading ? 'Loading...' : 'Refresh'}
             </button>
           </div>
-          {error && (
-            <p className="text-red-400 text-sm mt-2">Error: {error.message}</p>
+
+          {/* Status indicators */}
+          <div className="mt-3 flex items-center gap-4">
+            <ConnectionStatus
+              connected={wallet.connected}
+              connecting={wallet.connecting}
+            />
+            {projectLoading && (
+              <LoadingIndicator message="Loading project..." />
+            )}
+          </div>
+
+          {/* Error display */}
+          {projectError && (
+            <div className="mt-3">
+              <ErrorDisplay
+                error={projectError}
+                onRetry={() => {
+                  setAutoRetryCount(0);
+                  refresh();
+                }}
+                context="loading project"
+              />
+              {autoRetryCount > 0 && autoRetryCount < 3 && (
+                <p className="text-yellow-400 text-sm mt-2">
+                  🔄 Auto-retrying... (attempt {autoRetryCount}/3)
+                </p>
+              )}
+            </div>
           )}
-          {!wallet.connected && projectIdInput && (
-            <p className="text-yellow-400 text-sm mt-2">⚠️ Connect wallet to view balances</p>
+
+          {wallet.connected && !wallet.publicKey && projectIdInput && !projectError && (
+            <p className="text-blue-400 text-sm mt-3">⏳ Wallet reconnecting...</p>
+          )}
+
+          {!wallet.connected && projectIdInput && !projectError && (
+            <p className="text-yellow-400 text-sm mt-3">💡 Tip: Connect wallet to view your balances</p>
           )}
         </div>
 
         {/* ===== SECTION 2: PROJECT INFO + BALANCES ===== */}
+        {/* Show skeleton while initial project is loading */}
+        {projectLoading && !hasLoadedProject && projectIdInput && (
+          <ProjectInfoSkeleton />
+        )}
+
+        {/* Show project info when loaded */}
         {project && (
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
             <h2 className="text-2xl font-semibold mb-4">2. Project Info &amp; Balances</h2>
 
-            {/* Project Metadata */}
+            {/* Project Metadata - Always show when project is loaded */}
             <div className="mb-4 pb-4 border-b border-gray-700">
               <h3 className="text-lg font-semibold text-gray-300 mb-2">Project Details</h3>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -194,24 +341,49 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Balances */}
-            {wallet.connected && formatted && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-300 mb-2">Your Balances</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <p><span className="text-gray-400">SOL:</span> <span className="text-white font-mono">{parseFloat(formatted.sol).toFixed(4)}</span></p>
-                  <p><span className="text-gray-400">Old Token:</span> <span className="text-white font-mono">{parseFloat(formatted.oldToken).toFixed(2)}</span></p>
-                  <p><span className="text-gray-400">New Token:</span> <span className="text-white font-mono">{parseFloat(formatted.newToken).toFixed(2)}</span></p>
-                  <p><span className="text-gray-400">MFT:</span> <span className="text-white font-mono">{parseFloat(formatted.mft).toFixed(2)}</span></p>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">Updates every 3 seconds</p>
+            {/* Balances Section */}
+            {wallet.publicKey ? (
+              <>
+                {/* Show skeleton while balances are loading */}
+                {balancesLoading && !formatted ? (
+                  <BalancesSkeleton />
+                ) : formatted ? (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-300 mb-2">Your Balances</h3>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <p><span className="text-gray-400">SOL:</span> <span className="text-white font-mono">{parseFloat(formatted.sol).toFixed(4)}</span></p>
+                      <p><span className="text-gray-400">Old Token:</span> <span className="text-white font-mono">{parseFloat(formatted.oldToken).toFixed(2)}</span></p>
+                      <p><span className="text-gray-400">New Token:</span> <span className="text-white font-mono">{parseFloat(formatted.newToken).toFixed(2)}</span></p>
+                      <p><span className="text-gray-400">MFT:</span> <span className="text-white font-mono">{parseFloat(formatted.mft).toFixed(2)}</span></p>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">Updates every 3 seconds</p>
+                  </div>
+                ) : balancesError ? (
+                  <ErrorDisplay
+                    error={balancesError}
+                    onRetry={refreshBalances}
+                    context="loading balances"
+                  />
+                ) : null}
+              </>
+            ) : wallet.connected && !wallet.publicKey ? (
+              // Show reconnecting state when wallet is connected but publicKey is null
+              <div className="text-center py-4">
+                <LoadingIndicator message="Wallet reconnecting..." />
+                <p className="text-gray-500 text-xs mt-2">Please wait while your wallet reconnects</p>
+              </div>
+            ) : (
+              // Show connect prompt when wallet not connected
+              <div className="text-center py-4">
+                <p className="text-yellow-400 text-sm mb-2">Connect wallet to view your balances</p>
+                <p className="text-gray-500 text-xs">Project information is displayed above</p>
               </div>
             )}
           </div>
         )}
 
         {/* ===== SECTION 3: MIGRATE TOKENS ===== */}
-        {wallet.connected && project && (
+        {wallet.publicKey && project && (
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
             <h2 className="text-2xl font-semibold mb-4">3. Migrate Tokens</h2>
             <p className="text-gray-400 text-sm mb-4">Exchange old tokens for new tokens at the project&apos;s exchange rate</p>
@@ -236,7 +408,7 @@ export default function Home() {
 
               <button
                 onClick={handleMigrate}
-                disabled={migrating || !wallet.connected || project.paused || !migrationAmount || parseFloat(migrationAmount) <= 0}
+                disabled={migrating || !wallet.publicKey || project.paused || !migrationAmount || parseFloat(migrationAmount) <= 0}
                 className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
               >
                 {migrating ? `${migrateStatus}...` : `Migrate ${migrationAmount} Tokens`}
@@ -246,8 +418,21 @@ export default function Home() {
                 <p className="text-yellow-400 text-sm">⚠️ Project is currently paused</p>
               )}
 
-              {migrateError && (
-                <p className="text-red-400 text-sm">❌ Error: {migrateError.message}</p>
+              {migrateTxError && (
+                <div className="text-red-400 text-sm">
+                  <p>❌ Error: {migrateTxError.message}</p>
+                  {migrateTxError.message.includes('simulation failed') && (
+                    <div className="mt-2 text-xs text-gray-400">
+                      <p>Common solutions:</p>
+                      <ul className="list-disc ml-4">
+                        <li>Ensure project ID &quot;{projectIdInput}&quot; exists on {network}</li>
+                        <li>Check you have at least 0.002 SOL for fees</li>
+                        <li>Try using a premium RPC endpoint (see .env.example)</li>
+                        <li>Verify the project is active and not paused</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
 
               {migrateSignature && (
@@ -268,7 +453,7 @@ export default function Home() {
         )}
 
         {/* ===== SECTION 4: CLAIM TOKENS ===== */}
-        {wallet.connected && project && claimEligibility && getClaimType() && (
+        {wallet.publicKey && project && claimEligibility && getClaimType() && (
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
             <h2 className="text-2xl font-semibold mb-4">4. Claim Tokens</h2>
 
@@ -306,14 +491,14 @@ export default function Home() {
             {/* Claim Button */}
             <button
               onClick={handleClaim}
-              disabled={claiming || !wallet.connected || project.paused}
+              disabled={claiming || !wallet.publicKey || project.paused}
               className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
             >
               {claiming ? `${claimStatus}...` : `Claim ${getClaimType()} Tokens`}
             </button>
 
-            {claimError && (
-              <p className="text-red-400 text-sm mt-4">❌ Error: {claimError.message}</p>
+            {claimTxError && (
+              <p className="text-red-400 text-sm mt-4">❌ Error: {claimTxError.message}</p>
             )}
 
             {claimSignature && (

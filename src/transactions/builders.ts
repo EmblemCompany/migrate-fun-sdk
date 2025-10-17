@@ -17,12 +17,27 @@ import {
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
   TOKEN_PROGRAM_ID,
+  // TOKEN_2022_PROGRAM_ID,  // Will be used in future for Token-2022 detection
 } from '@solana/spl-token';
 
 import { getProgram } from '../core/program';
 import { LoadedProject, SdkError, SdkErrorCode } from '../core/types';
 import { parseError } from '../utils/errors';
+
+/**
+ * Determine the token program for a mint based on project configuration
+ * @internal
+ */
+function getTokenProgramForMint(_mint: PublicKey, _project: LoadedProject): PublicKey {
+  // For now, we default to TOKEN_PROGRAM_ID
+  // In the future, this can be enhanced to detect Token-2022 based on:
+  // - The mint address (_mint) by checking on-chain
+  // - Project configuration (_project)
+  // - Token metadata
+  return TOKEN_PROGRAM_ID;
+}
 
 /**
  * Options for building a migration transaction
@@ -163,9 +178,11 @@ export async function buildMigrateTx(
 
     const program = await getProgram(provider);
 
-    // Resolve required accounts
-    const oldTokenProgram = project.oldTokenDecimals === 9 ? TOKEN_PROGRAM_ID : TOKEN_PROGRAM_ID; // Adjust based on project config
+    // Determine token programs
+    const oldTokenProgram = getTokenProgramForMint(project.oldTokenMint, project);
+    const mftTokenProgram = TOKEN_PROGRAM_ID; // MFT always uses standard token program
 
+    // Derive Associated Token Accounts
     const userOldTokenAta = getAssociatedTokenAddressSync(
       project.oldTokenMint,
       user,
@@ -177,7 +194,7 @@ export async function buildMigrateTx(
       project.mftMint,
       user,
       false,
-      TOKEN_PROGRAM_ID
+      mftTokenProgram
     );
 
     // Build instruction accounts
@@ -198,11 +215,6 @@ export async function buildMigrateTx(
     const amountBN = new BN(amount.toString());
 
     // Build transaction
-    const instruction = await (program as any).methods
-      .migrate(projectId, amountBN)
-      .accounts(accounts)
-      .instruction();
-
     const transaction = new Transaction();
 
     // Add compute budget instructions if specified
@@ -210,6 +222,33 @@ export async function buildMigrateTx(
       // Note: ComputeBudgetProgram instructions would go here
       // Keeping it simple for now
     }
+
+    // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
+    // Create old token ATA if needed
+    const createOldTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userOldTokenAta,  // ata
+      user,  // owner
+      project.oldTokenMint,  // mint
+      oldTokenProgram  // token program
+    );
+    transaction.add(createOldTokenAtaIx);
+
+    // Create MFT ATA if needed
+    const createMftAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userMftAta,  // ata
+      user,  // owner
+      project.mftMint,  // mint
+      mftTokenProgram  // token program
+    );
+    transaction.add(createMftAtaIx);
+
+    // Add the migration instruction
+    const instruction = await (program as any).methods
+      .migrate(projectId, amountBN)
+      .accounts(accounts)
+      .instruction();
 
     transaction.add(instruction);
 
@@ -430,14 +469,16 @@ export async function buildClaimMftTx(
 
     const program = await getProgram(provider);
 
-    // Resolve required accounts
-    const newTokenProgram = TOKEN_PROGRAM_ID; // Adjust based on project config
+    // Determine token programs
+    const mftTokenProgram = TOKEN_PROGRAM_ID; // MFT always uses standard token program
+    const newTokenProgram = getTokenProgramForMint(project.newTokenMint, project);
 
+    // Derive Associated Token Accounts
     const userMftAta = getAssociatedTokenAddressSync(
       project.mftMint,
       user,
       false,
-      TOKEN_PROGRAM_ID
+      mftTokenProgram
     );
 
     const userNewTokenAta = getAssociatedTokenAddressSync(
@@ -465,12 +506,35 @@ export async function buildClaimMftTx(
     const mftAmountBN = new BN(mftAmount.toString());
 
     // Build transaction
+    const transaction = new Transaction();
+
+    // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
+    // Create MFT ATA if needed (user needs MFT to claim)
+    const createMftAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userMftAta,  // ata
+      user,  // owner
+      project.mftMint,  // mint
+      mftTokenProgram  // token program
+    );
+    transaction.add(createMftAtaIx);
+
+    // Create new token ATA if needed (for receiving new tokens)
+    const createNewTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userNewTokenAta,  // ata
+      user,  // owner
+      project.newTokenMint,  // mint
+      newTokenProgram  // token program
+    );
+    transaction.add(createNewTokenAtaIx);
+
+    // Add the claim instruction
     const instruction = await (program as any).methods
       .claimWithMft(projectId, mftAmountBN)
       .accounts(accounts)
       .instruction();
 
-    const transaction = new Transaction();
     transaction.add(instruction);
 
     // Set recent blockhash
@@ -745,10 +809,11 @@ export async function buildClaimMerkleTx(
 
     const program = await getProgram(provider);
 
-    // Resolve required accounts
-    const oldTokenProgram = TOKEN_PROGRAM_ID;
-    const newTokenProgram = TOKEN_PROGRAM_ID;
+    // Determine token programs
+    const oldTokenProgram = getTokenProgramForMint(project.oldTokenMint, project);
+    const newTokenProgram = getTokenProgramForMint(project.newTokenMint, project);
 
+    // Derive Associated Token Accounts
     const userOldTokenAta = getAssociatedTokenAddressSync(
       project.oldTokenMint,
       user,
@@ -766,7 +831,7 @@ export async function buildClaimMerkleTx(
     // Build instruction accounts
     const accounts = {
       user,
-      config: project.pdas.projectConfig,
+      projectConfig: project.pdas.projectConfig,  // Fixed: was 'config', should be 'projectConfig'
       userOldTokenAta,
       userNewTokenAta,
       oldTokenMint: project.oldTokenMint,
@@ -782,12 +847,35 @@ export async function buildClaimMerkleTx(
     const proofArray = merkleProof.map(p => Array.from(p));
 
     // Build transaction
+    const transaction = new Transaction();
+
+    // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
+    // Create old token ATA if needed (for burning old tokens)
+    const createOldTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userOldTokenAta,  // ata
+      user,  // owner
+      project.oldTokenMint,  // mint
+      oldTokenProgram  // token program
+    );
+    transaction.add(createOldTokenAtaIx);
+
+    // Create new token ATA if needed (for receiving new tokens)
+    const createNewTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userNewTokenAta,  // ata
+      user,  // owner
+      project.newTokenMint,  // mint
+      newTokenProgram  // token program
+    );
+    transaction.add(createNewTokenAtaIx);
+
+    // Add the merkle claim instruction
     const instruction = await (program as any).methods
       .claimWithMerkle(projectId, amountBN, proofArray)
       .accounts(accounts)
       .instruction();
 
-    const transaction = new Transaction();
     transaction.add(instruction);
 
     // Set recent blockhash
@@ -926,19 +1014,67 @@ export async function buildClaimRefundTx(
 
     const program = await getProgram(provider);
 
+    // Determine token programs
+    const oldTokenProgram = getTokenProgramForMint(project.oldTokenMint, project);
+    const mftTokenProgram = TOKEN_PROGRAM_ID; // MFT always uses standard token program
+
+    // Derive Associated Token Accounts
+    const userOldTokenAta = getAssociatedTokenAddressSync(
+      project.oldTokenMint,
+      user,
+      false,
+      oldTokenProgram
+    );
+
+    const userMftAta = getAssociatedTokenAddressSync(
+      project.mftMint,
+      user,
+      false,
+      mftTokenProgram
+    );
+
     // Build instruction accounts
-    // Note: For claim_refund, only user is required per IDL_REFERENCE.md:525-528
+    // Include both user and projectConfig for proper validation
     const accounts = {
       user,
+      projectConfig: project.pdas.projectConfig,
+      userOldTokenAta,
+      userMftAta,
+      oldTokenMint: project.oldTokenMint,
+      mftMint: project.mftMint,
+      oldTokenProgram,
     };
 
-    // Build transaction (no amount needed - refunds entire migration)
+    // Build transaction
+    const transaction = new Transaction();
+
+    // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
+    // Create old token ATA if needed (for receiving refunded tokens)
+    const createOldTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userOldTokenAta,  // ata
+      user,  // owner
+      project.oldTokenMint,  // mint
+      oldTokenProgram  // token program
+    );
+    transaction.add(createOldTokenAtaIx);
+
+    // Create MFT ATA if needed (for burning MFT during refund)
+    const createMftAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      user,  // payer
+      userMftAta,  // ata
+      user,  // owner
+      project.mftMint,  // mint
+      mftTokenProgram  // token program
+    );
+    transaction.add(createMftAtaIx);
+
+    // Add the refund instruction (no amount needed - refunds entire migration)
     const instruction = await (program as any).methods
       .claimRefund(projectId)
       .accounts(accounts)
       .instruction();
 
-    const transaction = new Transaction();
     transaction.add(instruction);
 
     // Set recent blockhash
