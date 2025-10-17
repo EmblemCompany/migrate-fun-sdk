@@ -30,11 +30,11 @@ This demo showcases the complete token migration journey in a single page:
 - Support for Phantom, Solflare, and other wallets
 - Auto-connect on page load
 
-### 2. Project Info & Balances (`useProjectSession`)
-- Load project metadata by ID
-- Real-time balance updates (SOL, old token, new token, MFT)
+### 2. Project Info & Balances (Composed Hooks)
+- Load project metadata by ID with `useLoadedProject`
+- Real-time balance updates with `useBalances` (SOL, old token, new token, MFT)
 - Auto-refresh every 3 seconds
-- Claim eligibility detection
+- Claim eligibility detection with `useEligibility`
 - Project phase and status display
 
 ### 3. Token Migration (`useMigrate`)
@@ -57,7 +57,9 @@ This demo showcases the complete token migration journey in a single page:
 
 | Hook | Purpose | Key Features |
 |------|---------|--------------|
-| `useProjectSession` | Project metadata + balances + eligibility | Combines three data sources in one hook with 3s polling |
+| `useLoadedProject` | Load project metadata | Simple project fetching, no wallet needed |
+| `useBalances` | Real-time balance updates | Auto-refresh every 3 seconds, formatted display |
+| `useEligibility` | Check claim eligibility | Determines available claim types |
 | `useMigrate` | Execute token migrations | Status tracking, callbacks, auto-refetch |
 | `useClaim` | Execute all claim types | Auto-detection, MFT/Merkle/Refund support |
 
@@ -204,10 +206,11 @@ demo/
 - **Copy-paste ready:** Take sections you need for your app
 - **Complete example:** See full integration pattern
 
-### Why `useProjectSession`?
-- **Efficiency:** Combines project + balances + eligibility
-- **Performance:** Built-in caching and polling
-- **Simplicity:** One hook instead of three
+### Why Composed Hooks?
+- **Flexibility:** Use only what you need
+- **Control:** Each hook does one thing well
+- **Debugging:** Easier to understand and troubleshoot
+- **Performance:** Load only the data you need
 
 ### Why Auto-detect Claims?
 - **Better UX:** Users don't need to know claim types
