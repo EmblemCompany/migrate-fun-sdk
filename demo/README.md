@@ -1,183 +1,240 @@
 # MigrateFun SDK Demo
 
-A complete, production-ready demo application showcasing the `@migratefun/sdk` for Solana token migrations.
-
-## Features
-
-- ✅ Complete SDK integration with all React hooks
-- ✅ Real-time balance watching
-- ✅ Transaction status tracking
-- ✅ Clean component architecture (refactored to 2 components)
-- ✅ Network switching (devnet/mainnet)
-- ✅ Comprehensive error handling
-- ✅ TypeScript type safety
+A simple, single-page Next.js application demonstrating all core features of the **@migratefun/sdk** for Solana token migrations.
 
 ## Quick Start
 
-### 1. Install Dependencies
+**1. Copy environment variables:**
+```bash
+cp .env.local.example .env.local
+```
 
+**2. Install dependencies:**
 ```bash
 npm install
 ```
 
-### 2. Configure Environment (Optional)
-
-```bash
-cp .env.example .env.local
-# Edit .env.local with your settings
-```
-
-See [`ENV.md`](./ENV.md) for complete configuration guide.
-
-### 3. Run the Demo
-
+**3. Run the demo:**
 ```bash
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Using the Demo
+## Features Demonstrated
 
-1. **Connect Wallet** - Click "Select Wallet" button
-2. **Load Project** - Enter a migration project ID
-3. **View Balances** - See your token balances in real-time
-4. **Migrate Tokens** - Test the migration flow with a specified amount
+This demo showcases the complete token migration journey in a single page:
 
-### Finding Project IDs
+### 1. Wallet Connection
+- Solana Wallet Adapter integration
+- Support for Phantom, Solflare, and other wallets
+- Auto-connect on page load
 
-Use the included utility script to find available projects on devnet:
+### 2. Project Info & Balances (`useProjectSession`)
+- Load project metadata by ID
+- Real-time balance updates (SOL, old token, new token, MFT)
+- Auto-refresh every 3 seconds
+- Claim eligibility detection
+- Project phase and status display
 
+### 3. Token Migration (`useMigrate`)
+- Migrate old tokens for new tokens
+- Amount validation
+- Transaction status tracking (preparing → signing → sending → confirming → confirmed)
+- Solana Explorer links
+- Auto-refresh balances after success
+
+### 4. Token Claims (`useClaim`)
+- **Auto-detection** of available claim types:
+  - **MFT Claim:** Claim new tokens using MFT (no penalty)
+  - **Merkle Claim:** Late claim with merkle proof (with penalty)
+  - **Refund Claim:** Get old tokens back if migration failed
+- Penalty calculation display
+- Transaction status tracking
+- Solana Explorer links
+
+## SDK Hooks Used
+
+| Hook | Purpose | Key Features |
+|------|---------|--------------|
+| `useProjectSession` | Project metadata + balances + eligibility | Combines three data sources in one hook with 3s polling |
+| `useMigrate` | Execute token migrations | Status tracking, callbacks, auto-refetch |
+| `useClaim` | Execute all claim types | Auto-detection, MFT/Merkle/Refund support |
+
+## Environment Variables
+
+Create `.env.local` from `.env.local.example` and configure:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NEXT_PUBLIC_SOLANA_NETWORK` | No | `devnet` | Network: `devnet` or `mainnet-beta` |
+| `NEXT_PUBLIC_SOLANA_RPC_URL` | No | Public RPC | Custom RPC endpoint (recommended for production) |
+| `NEXT_PUBLIC_DEFAULT_PROJECT_ID` | No | - | Auto-load a project on page load |
+
+**Example `.env.local`:**
 ```bash
-node scripts/find-projects.js
+NEXT_PUBLIC_SOLANA_NETWORK=devnet
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_DEFAULT_PROJECT_ID=your-project-id-here
 ```
 
-This will list all migration projects and their IDs that you can use for testing.
+## Testing Instructions
 
-## Development Workflow
+### Prerequisites
+- Node.js v20.10.0+
+- A Solana wallet (Phantom, Solflare, etc.)
+- Devnet SOL (get from [https://faucet.solana.com](https://faucet.solana.com))
+- A test project ID on devnet
 
-This demo uses a local reference to the SDK via `"@migratefun/sdk": "file:.."` in package.json.
+### Testing Flow
 
-**When you modify the SDK:**
+1. **Load Project:**
+   - Enter a valid project ID
+   - Click "Refresh" or let it auto-load
+   - Verify project details display correctly
 
-```bash
-# 1. Rebuild the SDK (from SDK root)
-cd ..
-npm run build
+2. **Connect Wallet:**
+   - Click "Select Wallet" button (top right)
+   - Connect with Phantom or Solflare
+   - Verify balances display
 
-# 2. Reinstall in demo (from demo directory)
-cd demo
-npm install
-npm run dev
-```
+3. **Test Migration:**
+   - Ensure you have old tokens in your wallet
+   - Enter an amount to migrate
+   - Click "Migrate Tokens"
+   - Approve transaction in wallet
+   - Verify success message and Explorer link
+   - Check balances auto-refresh
 
-The demo automatically picks up changes from the parent SDK package.
+4. **Test Claim (if eligible):**
+   - If claim section appears, verify claim type is correct
+   - Click "Claim {Type} Tokens"
+   - Approve transaction
+   - Verify success and balance update
+
+### Expected Behavior
+
+- **Loading States:** Show "Loading..." while fetching
+- **Error States:** Display clear error messages
+- **Success States:** Show transaction signature with Explorer link
+- **Auto-Refresh:** Balances update every 3 seconds
+- **Disabled States:** Buttons disabled when project paused or during transactions
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue: "Project not found"**
+- Verify the project ID is correct
+- Check you're on the right network (devnet vs mainnet)
+- Ensure the project exists on-chain
+
+**Issue: "Wallet connection failed"**
+- Ensure wallet extension is installed
+- Try refreshing the page
+- Try a different wallet
+- Check browser console for errors
+
+**Issue: "Transaction failed"**
+- **Insufficient SOL:** Need ~0.01 SOL for transaction fees
+- **Insufficient balance:** Check old token balance
+- **Project paused:** Wait for project to unpause
+- **Wrong phase:** Migration only works in active phase
+
+**Issue: "RPC rate limiting"**
+- Use a custom RPC endpoint (Helius, QuickNode)
+- Add RPC URL to `.env.local`
+- SDK has built-in throttling, but public RPCs are limited
+
+**Issue: "Balances not updating"**
+- Check wallet is connected
+- Verify project ID is loaded
+- Wait 3 seconds for polling interval
+- Click "Refresh" button manually
+
+**Issue: "Claim section not appearing"**
+- You may not be eligible for claims yet
+- Check if you've migrated tokens
+- Verify you're in the correct project phase
+- Some claims only available during grace period
+
+### Debug Tips
+
+1. **Check Browser Console:**
+   - Open DevTools (F12)
+   - Look for errors in Console tab
+   - SDK logs transaction details
+
+2. **Verify Network:**
+   - Ensure wallet is on correct network (devnet/mainnet)
+   - Check `.env.local` network setting matches wallet
+
+3. **Check Solana Explorer:**
+   - Search your wallet address
+   - Verify token accounts exist
+   - Check recent transactions
+
+4. **RPC Issues:**
+   - Try different RPC endpoint
+   - Check RPC status at [status.solana.com](https://status.solana.com)
+   - Consider using paid RPC for better reliability
 
 ## Project Structure
 
 ```
 demo/
 ├── app/
-│   ├── page.tsx              # Clean 21-line orchestration
-│   ├── layout.tsx            # Root layout with wallet provider
-│   └── globals.css           # Global styles
+│   ├── layout.tsx          # Root layout with providers
+│   ├── page.tsx            # Main demo (all features in ~350 lines)
+│   └── globals.css         # Tailwind imports
 ├── components/
-│   ├── MigrationDemo.tsx     # Core SDK showcase (274 lines)
-│   └── WalletProvider.tsx    # Wallet adapter configuration
-├── scripts/
-│   └── find-projects.js      # Utility to find devnet projects
-├── public/                   # Static assets
-├── package.json              # Local SDK reference
-├── ENV.md                    # Environment configuration guide
-└── QUICK_START.md            # Quick setup instructions
+│   └── WalletProvider.tsx  # Solana wallet adapter setup
+├── .env.local.example      # Environment template
+├── .env.local              # Your config (create from template)
+├── package.json            # Dependencies
+└── README.md               # This file
 ```
 
-## SDK Hooks Demonstrated
+**Total custom code:** ~400 lines across 2 main files (`page.tsx` + `WalletProvider.tsx`)
 
-### `useLoadedProject`
-Loads project metadata with automatic caching.
+## Architecture Notes
 
-### `useBalances`
-Watches user balances in real-time with configurable polling.
+### Why Single Page?
+- **Simplicity:** All code in one file makes it easy to understand
+- **Copy-paste ready:** Take sections you need for your app
+- **Complete example:** See full integration pattern
 
-### `useMigrate`
-Executes migration transactions with comprehensive status tracking.
+### Why `useProjectSession`?
+- **Efficiency:** Combines project + balances + eligibility
+- **Performance:** Built-in caching and polling
+- **Simplicity:** One hook instead of three
 
-## Configuration
+### Why Auto-detect Claims?
+- **Better UX:** Users don't need to know claim types
+- **Error prevention:** Can't submit wrong claim type
+- **Flexibility:** Handles all three claim types automatically
 
-The demo supports environment-based configuration:
+## Local SDK Development
 
-```bash
-# Network selection
-NEXT_PUBLIC_SOLANA_NETWORK=devnet          # or mainnet-beta
+This demo uses the SDK via `file:..` in `package.json`, so changes to the parent SDK are instantly available:
 
-# RPC endpoint
-NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+1. Make changes in `../src/` or `../react/`
+2. Run `yarn build` in SDK root
+3. Refresh demo (no reinstall needed)
 
-# Optional default project
-NEXT_PUBLIC_DEFAULT_PROJECT_ID=your-project-id
-```
+## Next Steps
 
-**Full configuration guide:** See [`ENV.md`](./ENV.md) for:
-- RPC provider recommendations (Helius, Alchemy, QuickNode)
-- Security best practices
-- RPC proxy setup for Next.js
-- Troubleshooting common issues
+- **Production:** Add error boundaries and loading skeletons
+- **Features:** Add transaction history, multi-project view
+- **Testing:** Add E2E tests with Playwright
+- **Styling:** Replace Tailwind with component library
 
-## Troubleshooting
+## Links
 
-### "Cannot find module '@migratefun/sdk'"
+- **SDK Repository:** [https://github.com/EmblemCompany/migrate-fun-sdk](https://github.com/EmblemCompany/migrate-fun-sdk)
+- **Solana Docs:** [https://docs.solana.com](https://docs.solana.com)
+- **Wallet Adapter:** [https://github.com/anza-xyz/wallet-adapter](https://github.com/anza-xyz/wallet-adapter)
 
-The SDK needs to be built first:
+## License
 
-```bash
-cd ..
-npm run build
-cd demo
-npm install
-```
-
-### Wallet Not Connecting
-
-- Install a Solana wallet extension (Phantom, Solflare)
-- Ensure you're on the correct network (check `.env.local`)
-- Check browser console for errors
-
-### Rate Limiting Errors
-
-Use a premium RPC provider (Helius, Alchemy) or set up an RPC proxy. See [`ENV.md`](./ENV.md) for details.
-
-### Build Errors
-
-If you encounter TypeScript or build errors after updating the SDK:
-
-```bash
-# Clean install
-rm -rf node_modules package-lock.json
-npm install
-npm run build
-```
-
-## Getting Test SOL
-
-For devnet testing:
-- Visit [https://faucet.solana.com](https://faucet.solana.com)
-- Connect your wallet and request SOL airdrop
-- You'll need ~0.1 SOL for testing migrations
-
-## Additional Resources
-
-- **SDK Documentation**: [`../README.md`](../README.md)
-- **Simple Examples**: [`../examples/`](../examples/)
-- **SDK Source**: [`../src/`](../src/)
-
-## Tech Stack
-
-- [Next.js 15](https://nextjs.org/) - React framework
-- [Solana Wallet Adapter](https://github.com/solana-labs/wallet-adapter) - Wallet integration
-- [@migratefun/sdk](../) - Migration SDK (local reference)
-- [Tailwind CSS](https://tailwindcss.com/) - Styling
-
----
-
-**Production-ready demo built with ❤️ by the migrate.fun team**
+See parent SDK repository for license information.
