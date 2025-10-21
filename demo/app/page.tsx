@@ -25,6 +25,9 @@ export default function Home() {
   const { connection } = useConnection();
   const wallet = useWallet();
 
+  // Network configuration
+  const network = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet") as "devnet" | "mainnet-beta";
+
   // State
   const [projectId, setProjectId] = useState("mig1"); // Default for testing
   const [project, setProject] = useState<LoadedProject | null>(null);
@@ -32,6 +35,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [migrateAmount, setMigrateAmount] = useState("");
+  const [lastMigrateSignature, setLastMigrateSignature] = useState<string | null>(null);
+  const [lastClaimSignature, setLastClaimSignature] = useState<string | null>(null);
 
   // Load project and balances directly using SDK functions
   const loadProjectData = useCallback(async () => {
@@ -42,6 +47,8 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
+    // Don't clear transaction signatures here - they should persist
+    // Only clear them when changing project ID or explicitly starting a new action
 
     try {
       // Step 1: Load project (doesn't require wallet)
@@ -67,8 +74,9 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Failed to load project");
     } finally {
       setLoading(false);
+      console.log('After loadProjectData - lastMigrateSignature:', lastMigrateSignature, 'lastClaimSignature:', lastClaimSignature);
     }
-  }, [projectId, connection, wallet.publicKey]);
+  }, [projectId, connection, wallet.publicKey, lastMigrateSignature, lastClaimSignature]);
 
   // Load data when wallet connects
   useEffect(() => {
@@ -85,10 +93,16 @@ export default function Home() {
     error: migrateError,
     signature: migrateSignature
   } = useMigrate(connection, wallet, {
-    onSuccess: () => {
-      console.log("Migration successful!");
+    onSuccess: (sig) => {
+      console.log("Migration successful!", sig);
+      setLastMigrateSignature(sig); // Save signature to local state
       setMigrateAmount("");
       loadProjectData(); // Refresh balances
+
+      // Auto-clear success message after 30 seconds
+      setTimeout(() => {
+        setLastMigrateSignature(null);
+      }, 30000);
     },
     onError: (err) => {
       console.error("Migration failed:", err);
@@ -103,9 +117,15 @@ export default function Home() {
     error: claimError,
     signature: claimSignature
   } = useClaim(connection, wallet, {
-    onSuccess: () => {
-      console.log("Claim successful!");
+    onSuccess: (sig) => {
+      console.log("Claim successful!", sig);
+      setLastClaimSignature(sig); // Save signature to local state
       loadProjectData(); // Refresh balances
+
+      // Auto-clear success message after 30 seconds
+      setTimeout(() => {
+        setLastClaimSignature(null);
+      }, 30000);
     },
     onError: (err) => {
       console.error("Claim failed:", err);
@@ -146,6 +166,7 @@ export default function Home() {
 
     try {
       setError(null);
+      setLastMigrateSignature(null); // Clear previous success message
       const tokenAmount = parseTokenAmount(amount, project.oldTokenDecimals);
       console.log("Migrating:", amount, "tokens =", tokenAmount.toString(), "raw amount");
       await migrate(projectId, tokenAmount, project);
@@ -171,6 +192,7 @@ export default function Home() {
 
     try {
       setError(null);
+      setLastClaimSignature(null); // Clear previous success message
       console.log("Claiming MFT:", balances.mft.toString());
       await claimMft(projectId, balances.mft, project);
     } catch (err) {
@@ -184,6 +206,9 @@ export default function Home() {
     if (!amount) return "0";
     return formatTokenAmount(amount, decimals);
   };
+
+  // Debug logging for state tracking
+  console.log('Render - migrateSignature:', migrateSignature, 'lastMigrateSignature:', lastMigrateSignature);
 
   return (
     <div className="min-h-screen p-8 pb-20 sm:p-20 font-[family-name:var(--font-geist-sans)]">
@@ -205,7 +230,12 @@ export default function Home() {
               type="text"
               placeholder="Enter Project ID"
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value.trim())}
+              onChange={(e) => {
+                setProjectId(e.target.value.trim());
+                // Clear transaction signatures when changing project
+                setLastMigrateSignature(null);
+                setLastClaimSignature(null);
+              }}
               className="flex-1 px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white"
             />
             <button
@@ -237,9 +267,39 @@ export default function Home() {
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
             <h2 className="text-2xl font-semibold mb-4">2. Project Details</h2>
             <div className="space-y-2 text-sm">
-              <div>Project ID: <span className="text-gray-400">{project.projectId.toBase58()}</span></div>
-              <div>Old Token: <span className="text-gray-400">{project.oldTokenMint.toBase58().slice(0, 8)}...</span></div>
-              <div>New Token: <span className="text-gray-400">{project.newTokenMint.toBase58().slice(0, 8)}...</span></div>
+              <div className="flex flex-col gap-1">
+                <span>Project ID:</span>
+                <a
+                  href={`https://explorer.solana.com/address/${project.projectId.toBase58()}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-blue-400 break-all text-xs"
+                >
+                  {project.projectId.toBase58()}
+                </a>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span>Old Token:</span>
+                <a
+                  href={`https://explorer.solana.com/address/${project.oldTokenMint.toBase58()}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-blue-400 break-all text-xs"
+                >
+                  {project.oldTokenMint.toBase58()}
+                </a>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span>New Token:</span>
+                <a
+                  href={`https://explorer.solana.com/address/${project.newTokenMint.toBase58()}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-blue-400 break-all text-xs"
+                >
+                  {project.newTokenMint.toBase58()}
+                </a>
+              </div>
               <div>Exchange Rate: <span className="text-gray-400">{Number(project.exchangeRate) / 10000}</span></div>
               <div>Migration Window: <span className="text-gray-400">
                 {new Date(project.startTs * 1000).toLocaleDateString()} - {new Date(project.endTs * 1000).toLocaleDateString()}
@@ -289,6 +349,47 @@ export default function Home() {
                 <span>{formatBalance(balances.mft, project.mftDecimals)}</span>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Transaction Success Messages - Always visible when present */}
+        {wallet.publicKey && (lastMigrateSignature || lastClaimSignature) && (
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
+            <h2 className="text-2xl font-semibold mb-4">Recent Transactions</h2>
+
+            {lastMigrateSignature && (
+              <div className="mb-3 p-4 bg-green-900/20 border border-green-500 rounded">
+                <div className="text-green-400 font-semibold mb-2">✅ Migration Successful!</div>
+                <div className="text-xs text-gray-400 mb-2 break-all">
+                  TX: {lastMigrateSignature}
+                </div>
+                <a
+                  href={`https://explorer.solana.com/tx/${lastMigrateSignature}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 inline-block"
+                >
+                  View on Solana Explorer →
+                </a>
+              </div>
+            )}
+
+            {lastClaimSignature && (
+              <div className="p-4 bg-green-900/20 border border-green-500 rounded">
+                <div className="text-green-400 font-semibold mb-2">✅ Claim Successful!</div>
+                <div className="text-xs text-gray-400 mb-2 break-all">
+                  TX: {lastClaimSignature}
+                </div>
+                <a
+                  href={`https://explorer.solana.com/tx/${lastClaimSignature}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 inline-block"
+                >
+                  View on Solana Explorer →
+                </a>
+              </div>
+            )}
           </div>
         )}
 
@@ -444,9 +545,20 @@ export default function Home() {
               </div>
             )}
 
-            {migrateSignature && (
-              <div className="mt-3 p-3 bg-green-900/20 border border-green-500 rounded text-green-400">
-                Success! TX: {migrateSignature.slice(0, 8)}...
+            {(migrateSignature || lastMigrateSignature) && (
+              <div className="mt-3 p-3 bg-green-900/20 border border-green-500 rounded">
+                <div className="text-green-400 font-semibold">✅ Migration Successful!</div>
+                <div className="text-xs text-gray-400 mt-1 break-all">
+                  TX: {migrateSignature || lastMigrateSignature}
+                </div>
+                <a
+                  href={`https://explorer.solana.com/tx/${migrateSignature || lastMigrateSignature}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
+                >
+                  View on Solana Explorer →
+                </a>
               </div>
             )}
           </div>
@@ -489,9 +601,20 @@ export default function Home() {
               </div>
             )}
 
-            {claimSignature && (
-              <div className="mt-3 p-3 bg-green-900/20 border border-green-500 rounded text-green-400">
-                Success! TX: {claimSignature.slice(0, 8)}...
+            {(claimSignature || lastClaimSignature) && (
+              <div className="mt-3 p-3 bg-green-900/20 border border-green-500 rounded">
+                <div className="text-green-400 font-semibold">✅ Claim Successful!</div>
+                <div className="text-xs text-gray-400 mt-1 break-all">
+                  TX: {claimSignature || lastClaimSignature}
+                </div>
+                <a
+                  href={`https://explorer.solana.com/tx/${claimSignature || lastClaimSignature}?cluster=${network === 'mainnet-beta' ? 'mainnet' : network}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
+                >
+                  View on Solana Explorer →
+                </a>
               </div>
             )}
           </div>
@@ -531,7 +654,7 @@ await migrate(projectId, amount, project);`}
             {/* Debug info */}
             {process.env.NODE_ENV === 'development' && (
               <div className="mt-4 p-3 bg-gray-800 rounded text-xs text-gray-500">
-                <div>Network: {process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet'}</div>
+                <div>Network: {network}</div>
                 <div>RPC: {process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'default'}</div>
               </div>
             )}

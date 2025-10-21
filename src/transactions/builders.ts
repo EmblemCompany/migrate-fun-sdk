@@ -14,6 +14,7 @@ import {
   Connection,
   PublicKey,
   Transaction,
+  ComputeBudgetProgram,
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddressSync,
@@ -232,11 +233,22 @@ export async function buildMigrateTx(
     // Build transaction
     const transaction = new Transaction();
 
-    // Add compute budget instructions if specified
-    if (options.computeUnitLimit || options.computeUnitPrice) {
-      // Note: ComputeBudgetProgram instructions would go here
-      // Keeping it simple for now
-    }
+    // Add compute budget instructions
+    // Default to 200k compute units and small priority fee to ensure transaction success
+    const computeUnitLimit = options.computeUnitLimit || 200000;
+    const computeUnitPrice = options.computeUnitPrice || 1000; // 0.001 lamports per compute unit
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: computeUnitLimit,
+      })
+    );
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: computeUnitPrice,
+      })
+    );
 
     // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
     // Create old token ATA if needed
@@ -267,9 +279,10 @@ export async function buildMigrateTx(
 
     transaction.add(instruction);
 
-    // Set recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    // Set blockhash for signing (will be refreshed in sendAndConfirmTransaction if stale)
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
     transaction.feePayer = user;
 
     // Calculate expected MFT based on exchange rate
@@ -539,6 +552,22 @@ export async function buildClaimMftTx(
     // Build transaction
     const transaction = new Transaction();
 
+    // Add compute budget instructions for claim transactions
+    const computeUnitLimit = _options.computeUnitLimit || 200000;
+    const computeUnitPrice = _options.computeUnitPrice || 1000;
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: computeUnitLimit,
+      })
+    );
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: computeUnitPrice,
+      })
+    );
+
     // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
     // Create MFT ATA if needed (user needs MFT to claim)
     const createMftAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -568,9 +597,10 @@ export async function buildClaimMftTx(
 
     transaction.add(instruction);
 
-    // Set recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    // Set blockhash for signing (will be refreshed in sendAndConfirmTransaction if stale)
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
     transaction.feePayer = user;
 
     // MFT to new tokens is 1:1, but need to adjust for decimals
@@ -686,30 +716,154 @@ export async function simulateTransaction(
 export async function sendAndConfirmTransaction(
   connection: Connection,
   transaction: Transaction,
-  options: { skipPreflight?: boolean } = {}
+  options: { skipPreflight?: boolean; maxRetries?: number } = {}
 ): Promise<string> {
-  try {
-    const rawTransaction = transaction.serialize();
-    const signature = await connection.sendRawTransaction(rawTransaction, {
-      skipPreflight: options.skipPreflight ?? false,
-      preflightCommitment: 'confirmed',
-    });
+  const maxRetries = options.maxRetries ?? 2;
+  let lastError: Error | null = null;
+  let lastSignature: string | null = null;
 
-    // Wait for confirmation
-    const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-
-    if (confirmation.value.err) {
-      throw new SdkError(
-        SdkErrorCode.TRANSACTION_FAILED,
-        `Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
-        confirmation.value.err
-      );
-    }
-
-    return signature;
-  } catch (error) {
-    throw parseError(error);
+  // Transaction should already have a blockhash from builder, but ensure it's set
+  if (!transaction.recentBlockhash) {
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
   }
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // If this is a retry, get a fresh blockhash
+      if (attempt > 0) {
+        console.log(`Retry attempt ${attempt + 1} with fresh blockhash...`);
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        transaction.recentBlockhash = blockhash;
+        transaction.lastValidBlockHeight = lastValidBlockHeight;
+
+        // On retry, consider skipping preflight if it failed before
+        // This helps when simulation fails but transaction would succeed
+        if (attempt === maxRetries - 1) {
+          console.log('Final attempt - skipping preflight simulation');
+        }
+      }
+
+      const rawTransaction = transaction.serialize();
+
+      // On last retry, skip preflight to try sending anyway
+      const skipPreflight = options.skipPreflight ?? (attempt === maxRetries - 1);
+
+      const signature = await connection.sendRawTransaction(rawTransaction, {
+        skipPreflight,
+        preflightCommitment: 'confirmed',
+        maxRetries: 1, // We handle retries ourselves
+      });
+
+      // Store signature for error recovery
+      lastSignature = signature;
+
+      // Wait for confirmation with timeout
+      const confirmationPromise = connection.confirmTransaction({
+        signature,
+        blockhash: transaction.recentBlockhash!,
+        lastValidBlockHeight: transaction.lastValidBlockHeight!,
+      }, 'confirmed');
+
+      // Add timeout to confirmation (30 seconds)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Transaction confirmation timeout')), 30000)
+      );
+
+      const confirmation = await Promise.race([
+        confirmationPromise,
+        timeoutPromise
+      ]) as any;
+
+      if (confirmation?.value?.err) {
+        throw new SdkError(
+          SdkErrorCode.TRANSACTION_FAILED,
+          `Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+          confirmation.value.err
+        );
+      }
+
+      return signature;
+    } catch (error: any) {
+      lastError = error;
+
+      // Check if error is blockhash expiry
+      const errorMessage = error?.message?.toLowerCase() || '';
+      const isBlockhashExpired = (errorMessage.includes('blockhash') && errorMessage.includes('not found')) ||
+                                  (errorMessage.includes('block height') && errorMessage.includes('exceeded')) ||
+                                  errorMessage.includes('blockhash has expired') ||
+                                  errorMessage.includes('signature') && errorMessage.includes('expired');
+
+      // If blockhash expired but we have a signature, check if transaction actually succeeded
+      if (isBlockhashExpired && lastSignature) {
+        console.log('Blockhash expired during confirmation, checking transaction status directly...');
+
+        try {
+          // Use getSignatureStatus to check without blockhash
+          const statusResponse = await connection.getSignatureStatus(lastSignature);
+
+          if (statusResponse?.value?.confirmationStatus === 'confirmed' ||
+              statusResponse?.value?.confirmationStatus === 'finalized') {
+            console.log('Transaction was successfully confirmed despite blockhash expiry!');
+            return lastSignature;
+          }
+
+          if (statusResponse?.value?.err) {
+            throw new SdkError(
+              SdkErrorCode.TRANSACTION_FAILED,
+              `Transaction failed: ${JSON.stringify(statusResponse.value.err)}`,
+              statusResponse.value.err
+            );
+          }
+
+          // Status is still pending, might need to wait longer
+          // Try one more time with a short delay
+          console.log('Transaction status pending, waiting before final check...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const finalStatus = await connection.getSignatureStatus(lastSignature);
+          if (finalStatus?.value?.confirmationStatus === 'confirmed' ||
+              finalStatus?.value?.confirmationStatus === 'finalized') {
+            console.log('Transaction confirmed after additional wait!');
+            return lastSignature;
+          }
+
+          if (finalStatus?.value?.err) {
+            throw new SdkError(
+              SdkErrorCode.TRANSACTION_FAILED,
+              `Transaction failed: ${JSON.stringify(finalStatus.value.err)}`,
+              finalStatus.value.err
+            );
+          }
+
+          console.log('Transaction status still unknown, will retry if attempts remain');
+        } catch (statusError) {
+          console.error('Failed to check transaction status:', statusError);
+          // Fall through to normal retry logic
+        }
+      }
+
+      // Check if error is simulation failure
+      const isSimulationError = errorMessage.includes('simulation') ||
+                                errorMessage.includes('preflight') ||
+                                errorMessage.includes('0x1'); // Common simulation error code
+
+      // If it's a simulation error and we have retries left, continue
+      if (isSimulationError && attempt < maxRetries - 1) {
+        console.log(`Simulation failed, retrying... (attempt ${attempt + 1}/${maxRetries})`);
+        // Small delay before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+
+      // If not retryable or no retries left, throw the error
+      break;
+    }
+  }
+
+  // If we get here, all retries failed
+  throw parseError(lastError || new Error('Transaction failed after all retries'));
 }
 
 /**
@@ -880,6 +1034,22 @@ export async function buildClaimMerkleTx(
     // Build transaction
     const transaction = new Transaction();
 
+    // Add compute budget instructions for claim transactions
+    const computeUnitLimit = _options.computeUnitLimit || 200000;
+    const computeUnitPrice = _options.computeUnitPrice || 1000;
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: computeUnitLimit,
+      })
+    );
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: computeUnitPrice,
+      })
+    );
+
     // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
     // Create old token ATA if needed (for burning old tokens)
     const createOldTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -909,9 +1079,10 @@ export async function buildClaimMerkleTx(
 
     transaction.add(instruction);
 
-    // Set recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    // Set blockhash for signing (will be refreshed in sendAndConfirmTransaction if stale)
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
     transaction.feePayer = user;
 
     // Calculate penalty and expected tokens
@@ -1079,6 +1250,22 @@ export async function buildClaimRefundTx(
     // Build transaction
     const transaction = new Transaction();
 
+    // Add compute budget instructions for claim transactions
+    const computeUnitLimit = _options.computeUnitLimit || 200000;
+    const computeUnitPrice = _options.computeUnitPrice || 1000;
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: computeUnitLimit,
+      })
+    );
+
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: computeUnitPrice,
+      })
+    );
+
     // Create ATAs if they don't exist (idempotent - won't fail if they already exist)
     // Create old token ATA if needed (for receiving refunded tokens)
     const createOldTokenAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -1108,9 +1295,10 @@ export async function buildClaimRefundTx(
 
     transaction.add(instruction);
 
-    // Set recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    // Set blockhash for signing (will be refreshed in sendAndConfirmTransaction if stale)
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
     transaction.feePayer = user;
 
     // TODO: Fetch expected refund amount from user migration record

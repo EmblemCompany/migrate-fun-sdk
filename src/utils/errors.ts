@@ -343,7 +343,7 @@ export function getErrorDetails(error: SdkError | unknown): {
   const retryableErrors = [
     SdkErrorCode.RPC_ERROR,
     SdkErrorCode.RATE_LIMIT,
-    SdkErrorCode.SIMULATION_FAILED,
+    SdkErrorCode.SIMULATION_FAILED, // Add simulation failures as retryable
     SdkErrorCode.TRANSACTION_FAILED,
   ];
 
@@ -468,7 +468,7 @@ export function isRetryableError(error: SdkError | unknown): boolean {
   const retryableErrors = [
     SdkErrorCode.RPC_ERROR,
     SdkErrorCode.RATE_LIMIT,
-    SdkErrorCode.SIMULATION_FAILED,
+    SdkErrorCode.SIMULATION_FAILED, // Simulation failures are often transient
     SdkErrorCode.TRANSACTION_FAILED,
     SdkErrorCode.UNKNOWN,
   ];
