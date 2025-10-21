@@ -186,6 +186,9 @@ export async function loadProject(
     const exchangeRateBps = (projectConfig as any).exchangeRateBasisPoints || 10000;
     const exchangeRate = BigInt(exchangeRateBps);
 
+    // Get claims enabled status
+    const claimsEnabled = (projectConfig as any).claimsEnabled || false;
+
     // Construct loaded project
     const loadedProject: LoadedProject = {
       projectId: projectConfigPda, // Use the PDA as the project identifier
@@ -198,6 +201,9 @@ export async function loadProject(
       newTokenDecimals,
       mftDecimals,
       exchangeRate,
+      startTs,
+      endTs,
+      claimsEnabled,
       pdas: {
         projectConfig: projectConfigPda,
         mftMint: pdas.mftMint,

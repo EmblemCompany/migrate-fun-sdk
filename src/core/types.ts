@@ -34,6 +34,9 @@ export interface LoadedProject {
   newTokenDecimals: number;
   mftDecimals: number;
   exchangeRate: bigint;
+  startTs: number;        // Migration start timestamp (unix seconds)
+  endTs: number;          // Migration end timestamp (unix seconds)
+  claimsEnabled: boolean; // Whether claims are enabled
   pdas: {
     projectConfig: PublicKey;
     mftMint: PublicKey;

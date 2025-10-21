@@ -3,17 +3,11 @@
  * React hooks for migrate.fun SDK
  */
 
-// React hooks exports
+// React hooks exports - Single responsibility hooks
 export * from './useLoadedProject';
 export * from './useBalances';
 export * from './useMigrate';
-
-// Export from useProjectSession (exclude FormattedBalances to avoid conflict with useBalances)
-export type {
-  UseProjectSessionOptions,
-  UseProjectSessionReturn,
-} from './useProjectSession';
-export { useProjectSession } from './useProjectSession';
+export * from './useEligibility';
 
 // Export from useClaim (exclude WalletAdapter to avoid conflict with useMigrate)
 export type {

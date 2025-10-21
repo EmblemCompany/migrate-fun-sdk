@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { SolanaWalletProvider } from "@/components/WalletProvider";
+import Providers from './providers';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MigrateFun SDK Demo",
-  description: "Demo app for testing the @migratefun/sdk",
+  description: "Simple demo showing @migratefun/sdk usage",
 };
 
 export default function RootLayout({
@@ -28,9 +28,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <SolanaWalletProvider>
+        <Providers>
           {children}
-        </SolanaWalletProvider>
+        </Providers>
       </body>
     </html>
   );

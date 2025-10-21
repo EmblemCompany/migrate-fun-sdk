@@ -153,6 +153,21 @@ export async function buildMigrateTx(
       );
     }
 
+    // Validate migration window
+    const now = Date.now() / 1000;
+    if (now < project.startTs) {
+      throw new SdkError(
+        SdkErrorCode.MIGRATION_WINDOW_CLOSED,
+        `Migration has not started yet. Start time: ${new Date(project.startTs * 1000).toISOString()}`
+      );
+    }
+    if (now >= project.endTs) {
+      throw new SdkError(
+        SdkErrorCode.MIGRATION_WINDOW_CLOSED,
+        `Migration window has ended. End time: ${new Date(project.endTs * 1000).toISOString()}`
+      );
+    }
+
     // Validate amount
     if (amount <= 0n) {
       throw new SdkError(
@@ -444,6 +459,22 @@ export async function buildClaimMftTx(
   _options: BuildClaimMftTxOptions = {}
 ): Promise<BuildClaimMftTxResult> {
   try {
+    // Validate project status
+    if (project.paused) {
+      throw new SdkError(
+        SdkErrorCode.PROJECT_PAUSED,
+        'Project is paused - claims are temporarily disabled'
+      );
+    }
+
+    // Validate claims are enabled
+    if (!project.claimsEnabled) {
+      throw new SdkError(
+        SdkErrorCode.INVALID_PHASE,
+        'Claims are not enabled yet for this project'
+      );
+    }
+
     // Validate amount
     if (mftAmount <= 0n) {
       throw new SdkError(
